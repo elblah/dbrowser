@@ -125,9 +125,7 @@ settings.set_enable_encrypted_media(bool(enable_drm))
 settings.set_hardware_acceleration_policy(WebKit2.HardwareAccelerationPolicy.ON_DEMAND)
 # Disable expensive/insecure features by default
 settings.set_enable_webgl(False)
-settings.set_enable_plugins(False)
 settings.set_enable_smooth_scrolling(False)
-settings.set_enable_hyperlink_auditing(False)
 # File access isolation - prevent local file exfiltration
 settings.set_allow_file_access_from_file_urls(False)
 settings.set_allow_universal_access_from_file_urls(False)
