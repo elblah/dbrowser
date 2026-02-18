@@ -44,6 +44,8 @@ Env vars:
   DBROWSER_MEMORY_LIMIT - Memory limit in MB (e.g., 256)
   DBROWSER_FAST=1       - Faster loading (DNS prefetch, page cache)
   DBROWSER_WEBGL=1      - Enable WebGL (disabled by default)
+  DBROWSER_MEDIA=1      - Enable media streaming (YouTube, etc)
+  DBROWSER_DRM=1        - Enable DRM/encrypted media (Netflix, etc)
   DBROWSER_SIZE         - Window size WxH (default: 800x600)
   DBROWSER_DEBUG=1      - Show key events
 ''')
@@ -75,6 +77,8 @@ low_mem = os.getenv('DBROWSER_LOW_MEM')
 fast = os.getenv('DBROWSER_FAST')
 no_images = os.getenv('DBROWSER_NO_IMAGES')
 enable_webgl = os.getenv('DBROWSER_WEBGL')
+enable_media = os.getenv('DBROWSER_MEDIA')
+enable_drm = os.getenv('DBROWSER_DRM')
 memory_limit = os.getenv('DBROWSER_MEMORY_LIMIT')
 
 # Context config (must be before WebView creation)
@@ -100,6 +104,10 @@ else:
 if no_cache or low_mem:
     ctx.set_cache_model(WebKit2.CacheModel.DOCUMENT_VIEWER)
 
+# Block third-party cookies
+cookie_manager = ctx.get_cookie_manager()
+cookie_manager.set_accept_policy(WebKit2.CookieAcceptPolicy.NO_THIRD_PARTY)
+
 # Use single process to reduce memory
 if low_mem:
     ctx.set_process_model(WebKit2.ProcessModel.SHARED_SECONDARY_PROCESS)
@@ -111,14 +119,21 @@ win.set_default_size(w, h)
 web = WebKit2.WebView()
 settings = web.get_settings()
 settings.set_enable_developer_extras(True)
-settings.set_enable_mediasource(True)
-settings.set_enable_media_stream(True)
+settings.set_enable_mediasource(bool(enable_media))
+settings.set_enable_media_stream(bool(enable_media))
+settings.set_enable_encrypted_media(bool(enable_drm))
 settings.set_hardware_acceleration_policy(WebKit2.HardwareAccelerationPolicy.ON_DEMAND)
 # Disable expensive/insecure features by default
 settings.set_enable_webgl(False)
 settings.set_enable_plugins(False)
 settings.set_enable_smooth_scrolling(False)
 settings.set_enable_hyperlink_auditing(False)
+# File access isolation - prevent local file exfiltration
+settings.set_allow_file_access_from_file_urls(False)
+settings.set_allow_universal_access_from_file_urls(False)
+# Restrict JS capabilities
+settings.set_javascript_can_access_clipboard(False)
+settings.set_javascript_can_open_windows_automatically(False)
 if no_js:
     settings.set_enable_javascript(False)
 if low_mem:
@@ -135,6 +150,7 @@ if enable_webgl:
     settings.set_hardware_acceleration_policy(WebKit2.HardwareAccelerationPolicy.ALWAYS)
 if no_images:
     settings.set_auto_load_images(False)
+settings.set_user_agent('Mozilla/5.0')
 win.add(web)
 win.show_all()
 
