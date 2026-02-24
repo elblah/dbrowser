@@ -221,15 +221,15 @@ poll_timer.start(500)  # Check every 500ms
 def handle_download(item):
     def on_state_changed(state):
         if state == QWebEngineDownloadRequest.DownloadState.DownloadCompleted:
-            print(f'Download completed: {item.downloadDirectory()}')
+            print(f'Download completed: {item.downloadFileName()}')
     path = os.path.expanduser(os.getenv('DBROWSER_DOWNLOAD_DIR', '~/Downloads'))
     os.makedirs(path, exist_ok=True)
     suggested = item.suggestedFileName() or 'download'
-    dest = os.path.join(path, suggested)
-    item.setPath(dest)
+    item.setDownloadDirectory(path)
+    item.setDownloadFileName(suggested)
     item.stateChanged.connect(on_state_changed)
     item.accept()
-    print(f'Downloading to {dest} ...')
+    print(f'Downloading to {path}/{suggested} ...')
 
 profile.downloadRequested.connect(handle_download)
 
@@ -263,7 +263,12 @@ def on_key(event):
     # Ctrl+P - Print dialog
     elif key == Qt.Key.Key_P and modifiers == Qt.KeyboardModifier.ControlModifier:
         print('Printing...')
-        page.runJavaScript('window.print()')
+        # Use Qt print dialog directly
+        from PyQt6.QtPrintSupport import QPrintDialog
+        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+        dialog = QPrintDialog(printer, win)
+        if dialog.exec() == dialog.Accepted:
+            page.print(printer, lambda ok: None)
     
     # Ctrl+Shift+P - Save as PDF
     elif key == Qt.Key.Key_P and modifiers == (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier):
