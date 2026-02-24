@@ -255,10 +255,9 @@ def on_key(event):
         print('Reloading...')
         web.reload()
     
-    # F12 - Developer tools
+    # F12 - Developer tools (not available on RPi)
     elif key == Qt.Key.Key_F12:
-        print('Opening inspector...')
-        page.triggerAction(QWebEnginePage.WebAction.InspectElement)
+        print('Developer tools not available on this platform')
     
     # Ctrl+P - Print dialog
     elif key == Qt.Key.Key_P and modifiers == Qt.KeyboardModifier.ControlModifier:
