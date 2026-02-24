@@ -48,6 +48,7 @@ Env vars:
   DBROWSER_DRM=1        - Enable DRM/encrypted media (Netflix, etc)
   DBROWSER_SIZE         - Window size WxH (default: 800x600)
   DBROWSER_DEBUG=1      - Show key events
+  DBROWSER_JS_CONSOLE=1 - Log JavaScript console.log/warn/error to console
 ''')
 
 if len(sys.argv) < 2 or sys.argv[1] in ('-h', '--help'):
@@ -80,6 +81,7 @@ enable_webgl = os.getenv('DBROWSER_WEBGL')
 enable_media = os.getenv('DBROWSER_MEDIA')
 enable_drm = os.getenv('DBROWSER_DRM')
 memory_limit = os.getenv('DBROWSER_MEMORY_LIMIT')
+show_js_console = os.getenv('DBROWSER_JS_CONSOLE')
 
 # Context config (must be before WebView creation)
 if memory_limit:
@@ -367,6 +369,40 @@ def on_load_progress(webview, pspec):
 web.connect('notify::estimated-load-progress', on_load_progress)
 
 win.set_title('dbrowser')
+
+if show_js_console:
+    user_content = web.get_user_content_manager()
+    user_content.register_script_message_handler('console')
+
+    def on_console_message(user_content, result):
+        message = result.get_js_value().to_string()
+        print(f'[JS] {message}')
+    user_content.connect('script-message-received::console', on_console_message)
+
+    console_script = '''
+    (function() {
+        const originalLog = console.log;
+        const originalWarn = console.warn;
+        const originalError = console.error;
+        const sendMessage = (level, args) => {
+            const msg = args.map(arg => {
+                if (typeof arg === 'object') {
+                    try {
+                        return JSON.stringify(arg);
+                    } catch (e) {
+                        return String(arg);
+                    }
+                }
+                return String(arg);
+            }).join(' ');
+            window.webkit.messageHandlers.console.postMessage(`[${level}] ${msg}`);
+        };
+        console.log = (...args) => { originalLog(...args); sendMessage('log', args); };
+        console.warn = (...args) => { originalWarn(...args); sendMessage('warn', args); };
+        console.error = (...args) => { originalError(...args); sendMessage('error', args); };
+    })();
+    '''
+    user_content.add_script(WebKit2.UserScript(console_script, 0, 0, None, None))
 
 web.load_uri(url)
 win.show_all()
