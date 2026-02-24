@@ -124,9 +124,9 @@ settings = page.settings()
 settings.setAttribute(QWebEngineSettings.WebAttribute.PluginsEnabled, True)
 settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptEnabled, not bool(no_js))
 settings.setAttribute(QWebEngineSettings.WebAttribute.AutoLoadIconsForPage, True)
-settings.setAttribute(QWebEngineSettings.WebAttribute.AllowRunningInsecureContent, True)  # Allow HTTP
+settings.setAttribute(QWebEngineSettings.WebAttribute.AllowRunningInsecureContent, False)
 settings.setAttribute(QWebEngineSettings.WebAttribute.AllowGeolocationOnInsecureOrigins, False)
-settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True)  # Allow HTTP images
+settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, False)
 settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, False)
 
 if no_images:
@@ -263,7 +263,7 @@ def on_key(event):
     # Ctrl+P - Print dialog
     elif key == Qt.Key.Key_P and modifiers == Qt.KeyboardModifier.ControlModifier:
         print('Printing...')
-        run_js('window.print()')
+        page.runJavaScript('window.print()')
     
     # Ctrl+Shift+P - Save as PDF
     elif key == Qt.Key.Key_P and modifiers == (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier):
