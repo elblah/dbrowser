@@ -4,7 +4,6 @@ import random
 import string
 import subprocess
 import sys
-import urllib.parse
 
 from PyQt6.QtCore import QEvent, QObject, Qt, QUrl, QTimer
 from PyQt6.QtPrintSupport import QPrinter
