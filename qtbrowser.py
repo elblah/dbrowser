@@ -21,7 +21,7 @@ Keybindings:
   F1              - Show this help
   Ctrl+Q          - Quit
   F5 / Ctrl+R     - Reload page
-  F12             - Developer tools
+  F12             - Developer tools (set QTWEBENGINE_REMOTE_DEBUGGING=9222)
   Ctrl+P          - Print dialog
   Ctrl+Shift+P    - Save page as PDF
   Ctrl+S          - Save page as HTML
@@ -255,9 +255,10 @@ def on_key(event):
         print('Reloading...')
         web.reload()
     
-    # F12 - Developer tools (not available on RPi)
+    # F12 - Developer tools
     elif key == Qt.Key.Key_F12:
-        print('Developer tools not available on this platform')
+        print('To enable dev tools: export QTWEBENGINE_REMOTE_DEBUGGING=9222')
+        print('Then open http://localhost:9222 in Chrome/Chromium')
     
     # Ctrl+P - Print dialog
     elif key == Qt.Key.Key_P and modifiers == Qt.KeyboardModifier.ControlModifier:

@@ -11,7 +11,11 @@ A minimalist WebKit2 browser.
 
 Install on Debian/Ubuntu:
 ```bash
-apt install python3-gi gir1.2-webkit2-4.1
+# for Webkit (browser.py)
+apt install python3-gi gir1.2-webkit2-4.1 suckless-tools
+
+# for QtWebEngine (qtbrowser.py):
+apt install python3-pyqt6 python3-pyqt6.qtwebengine suckless-tools
 ```
 
 ## Usage
@@ -27,7 +31,7 @@ apt install python3-gi gir1.2-webkit2-4.1
 | F1 | Show help |
 | Ctrl+Q | Quit |
 | F5 / Ctrl+R | Reload page |
-| F12 | Developer tools |
+| F12 | Developer tools (Qt version: set `QTWEBENGINE_REMOTE_DEBUGGING=9222`) |
 | Ctrl+P | Print dialog |
 | Ctrl+Shift+P | Save as PDF |
 | Ctrl+S | Save as HTML (MHTML) |
@@ -67,6 +71,7 @@ apt install python3-gi gir1.2-webkit2-4.1
 | `DBROWSER_SIZE` | Window size WxH (default: `800x600`) |
 | `DBROWSER_DEBUG=1` | Show key events |
 | `BOOKMARKS_FILE` | Bookmarks file path (default: `~/data/links.txt`) |
+| `QTWEBENGINE_REMOTE_DEBUGGING` | Enable developer tools on port (Qt version only) |
 
 ## License
 
