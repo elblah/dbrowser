@@ -4,11 +4,14 @@ import random
 import string
 import subprocess
 import sys
+import urllib.parse
+
+# Import WebEngine early (like qutebrowser does)
+from PyQt6.QtWebEngineWidgets import QWebEngineView
+from PyQt6.QtWebEngineCore import QWebEngineDownloadRequest, QWebEnginePage, QWebEngineProfile, QWebEngineSettings
 
 from PyQt6.QtCore import QEvent, QObject, Qt, QUrl, QTimer
 from PyQt6.QtPrintSupport import QPrinter
-from PyQt6.QtWebEngineCore import QWebEngineDownloadRequest, QWebEnginePage, QWebEngineProfile, QWebEngineSettings
-from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWidgets import QApplication, QMainWindow
 
 
@@ -20,7 +23,7 @@ Keybindings:
   F1              - Show this help
   Ctrl+Q          - Quit
   F5 / Ctrl+R     - Reload page
-  F12             - Developer tools (set QTWEBENGINE_REMOTE_DEBUGGING=9222)
+  F12             - Developer tools
   Ctrl+P          - Print dialog
   Ctrl+Shift+P    - Save page as PDF
   Ctrl+S          - Save page as HTML
@@ -56,7 +59,8 @@ Env vars:
   DBROWSER_WEBGL=1      - Enable WebGL
   DBROWSER_MEDIA=1      - Enable media streaming
   DBROWSER_SIZE         - Window size WxH (default: 800x600)
-  DBROWSER_DEBUG=1      - Show key events
+  DBROWSER_LOAD_DELAY   - Delay before loading URL in ms (default: 0)
+  DBROWSER_DEBUG=1      - Show key events and loading progress
 ''')
 
 
@@ -88,20 +92,9 @@ app = QApplication(sys.argv)
 size_str = os.getenv('DBROWSER_SIZE', '800x600')
 w, h = map(int, size_str.split('x'))
 
-# Custom WebEngineView that loads URL after initialization
-class BrowserView(QWebEngineView):
-    def __init__(self, start_url):
-        super().__init__()
-        self._start_url = start_url
-        
-    def showEvent(self, event):
-        super().showEvent(event)
-        # Store URL to load when web engine is ready
-        if hasattr(self, '_start_url') and self._start_url:
-            _pending_url[0] = self._start_url
-
-# WebEngine view first (Qt6 requires view creation before profile access)
-web = BrowserView(url)
+# WebEngine view
+web = QWebEngineView()
+web._progress = 0  # Track progress for monitor
 page = web.page()
 
 # Profile configuration
@@ -113,19 +106,16 @@ if no_cache or low_mem:
     profile.setHttpCacheType(QWebEngineProfile.HttpCacheType.NoCache)
     profile.clearHttpCache()
 
-# Window setup
-win = QMainWindow()
-win.resize(w, h)
-win.setCentralWidget(web)
+# Window setup (moved to BrowserWindow class below)
 
 # Settings
 settings = page.settings()
 settings.setAttribute(QWebEngineSettings.WebAttribute.PluginsEnabled, True)
 settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptEnabled, not bool(no_js))
 settings.setAttribute(QWebEngineSettings.WebAttribute.AutoLoadIconsForPage, True)
-settings.setAttribute(QWebEngineSettings.WebAttribute.AllowRunningInsecureContent, False)
+settings.setAttribute(QWebEngineSettings.WebAttribute.AllowRunningInsecureContent, True)  # Allow HTTP
 settings.setAttribute(QWebEngineSettings.WebAttribute.AllowGeolocationOnInsecureOrigins, False)
-settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, False)
+settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True)  # Allow HTTP images
 settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, False)
 
 if no_images:
@@ -175,17 +165,27 @@ def update_title(title, progress=None):
         win.setWindowTitle(f'{title} - qtbrowser')
 
 def on_load_started():
+    if debug:
+        print("LOAD STARTED")
     update_title('Loading...', 0)
 
 def on_load_progress(progress):
+    if debug:
+        print(f"PROGRESS: {progress}%")
+    web._progress = progress  # Store for monitor
     title = web.title() or 'Loading...'
     update_title(title, progress)
 
 def on_load_finished(ok):
-    title = web.title() or 'Done'
-    update_title(title)
+    if debug:
+        print(f"LOAD FINISHED: ok={ok}")
+    # Fallback: use URL host if no title
+    if not web.title():
+        update_title(web.url().host() or 'Done')
 
 def on_title_changed(title):
+    if debug:
+        print(f"TITLE CHANGED: {title}")
     update_title(title)
 
 def on_url_changed(qurl):
@@ -197,38 +197,88 @@ web.loadFinished.connect(on_load_finished)
 web.titleChanged.connect(on_title_changed)
 web.urlChanged.connect(on_url_changed)
 
-# Polling approach - check if web engine is ready
-_has_loaded = [False]
-_pending_url = [None]
+# Custom main window with load monitor
+class BrowserWindow(QMainWindow):
+    def __init__(self, web_view, url, width, height):
+        super().__init__()
+        self._web = web_view
+        self._url = url
+        self.setCentralWidget(web_view)
+        self.resize(width, height)
+        
+        # Monitor state
+        self._first_time = True
+        self._last_progress = None
+        self._monitor_timer = None
+    
+    def showEvent(self, event):
+        super().showEvent(event)
+        if event.spontaneous():
+            return
+        # Start the load monitor
+        self._load_monitor()
+    
+    def _load_monitor(self):
+        """Monitor that detects stuck progress and retries."""
+        if self._first_time:
+            # First run: load the URL
+            self._first_time = False
+            if debug:
+                print(f"MONITOR: First time, loading {self._url}")
+            self._web.load(QUrl(self._url))
+            self._last_progress = 0
+        else:
+            # Not first run: check progress
+            page = self._web.page()
+            is_loading = page.isLoading()
+            url = self._web.url().toString()
+            
+            # Get progress from webview (stored by on_load_progress)
+            current_progress = getattr(self._web, '_progress', 0)
+            
+            if debug:
+                print(f"MONITOR: loading={is_loading}, progress={current_progress}%, last={self._last_progress}%, url={url}")
+            
+            # Check if load is finished
+            if not is_loading and url:
+                if debug:
+                    print("MONITOR: Load finished, stopping monitor")
+                if self._monitor_timer:
+                    self._monitor_timer.stop()
+                return
+            
+            # Check if stuck (same progress for 2 checks)
+            if current_progress == self._last_progress and is_loading:
+                if debug:
+                    print(f"MONITOR: Progress stuck at {current_progress}%, reloading")
+                self._web.load(QUrl(self._url))
+                self._last_progress = 0
+                return
+            
+            # Progress changed, update tracking
+            self._last_progress = current_progress
+        
+        # Schedule next check in 2 seconds
+        if self._monitor_timer is None:
+            self._monitor_timer = QTimer(self)
+            self._monitor_timer.timeout.connect(self._load_monitor)
+        self._monitor_timer.start(2000)
 
-def try_load_url():
-    if _pending_url[0] and not _has_loaded[0]:
-        # Try loading
-        web.load(QUrl(_pending_url[0]))
-        # Check if actually started loading
-        if page.isLoading():
-            _has_loaded[0] = True
-            _pending_url[0] = None
-            poll_timer.stop()  # Stop polling once loaded
-
-# Timer to poll for readiness
-poll_timer = QTimer()
-poll_timer.timeout.connect(try_load_url)
-poll_timer.start(500)  # Check every 500ms
+win = BrowserWindow(web, url, w, h)
 
 # Download handling
 def handle_download(item):
     def on_state_changed(state):
         if state == QWebEngineDownloadRequest.DownloadState.DownloadCompleted:
-            print(f'Download completed: {item.downloadFileName()}')
+            print(f'Download completed: {item.downloadDirectory()}')
     path = os.path.expanduser(os.getenv('DBROWSER_DOWNLOAD_DIR', '~/Downloads'))
     os.makedirs(path, exist_ok=True)
     suggested = item.suggestedFileName() or 'download'
-    item.setDownloadDirectory(path)
-    item.setDownloadFileName(suggested)
+    dest = os.path.join(path, suggested)
+    item.setPath(dest)
     item.stateChanged.connect(on_state_changed)
     item.accept()
-    print(f'Downloading to {path}/{suggested} ...')
+    print(f'Downloading to {dest} ...')
 
 profile.downloadRequested.connect(handle_download)
 
@@ -256,18 +306,13 @@ def on_key(event):
     
     # F12 - Developer tools
     elif key == Qt.Key.Key_F12:
-        print('To enable dev tools: export QTWEBENGINE_REMOTE_DEBUGGING=9222')
-        print('Then open http://localhost:9222 in Chrome/Chromium')
+        print('Opening inspector...')
+        page.triggerAction(QWebEnginePage.WebAction.InspectElement)
     
     # Ctrl+P - Print dialog
     elif key == Qt.Key.Key_P and modifiers == Qt.KeyboardModifier.ControlModifier:
         print('Printing...')
-        # Use Qt print dialog directly
-        from PyQt6.QtPrintSupport import QPrintDialog
-        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
-        dialog = QPrintDialog(printer, win)
-        if dialog.exec() == dialog.Accepted:
-            page.print(printer, lambda ok: None)
+        run_js('window.print()')
     
     # Ctrl+Shift+P - Save as PDF
     elif key == Qt.Key.Key_P and modifiers == (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier):
