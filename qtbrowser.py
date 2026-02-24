@@ -6,7 +6,7 @@ import subprocess
 import sys
 import urllib.parse
 
-from PyQt6.QtCore import QObject, Qt, QUrl, QTimer
+from PyQt6.QtCore import QEvent, QObject, Qt, QUrl, QTimer
 from PyQt6.QtPrintSupport import QPrinter
 from PyQt6.QtWebEngineCore import QWebEngineDownloadRequest, QWebEnginePage, QWebEngineProfile, QWebEngineSettings
 from PyQt6.QtWebEngineWidgets import QWebEngineView
@@ -124,9 +124,9 @@ settings = page.settings()
 settings.setAttribute(QWebEngineSettings.WebAttribute.PluginsEnabled, True)
 settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptEnabled, not bool(no_js))
 settings.setAttribute(QWebEngineSettings.WebAttribute.AutoLoadIconsForPage, True)
-settings.setAttribute(QWebEngineSettings.WebAttribute.AllowRunningInsecureContent, False)
+settings.setAttribute(QWebEngineSettings.WebAttribute.AllowRunningInsecureContent, True)  # Allow HTTP
 settings.setAttribute(QWebEngineSettings.WebAttribute.AllowGeolocationOnInsecureOrigins, False)
-settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, False)
+settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True)  # Allow HTTP images
 settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, False)
 
 if no_images:
@@ -240,7 +240,7 @@ def on_key(event):
     
     if debug:
         print(f'key pressed: key={key}, modifiers={modifiers}')
-    
+
     # F1 - Help
     if key == Qt.Key.Key_F1:
         show_help()
@@ -267,13 +267,9 @@ def on_key(event):
     
     # Ctrl+Shift+P - Save as PDF
     elif key == Qt.Key.Key_P and modifiers == (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier):
-        def save_pdf(title):
-            dest = get_save_path(title or 'page', 'pdf')
-            printer = QPrinter(QPrinter.PrinterMode.HighResolution)
-            printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
-            printer.setOutputFileName(dest)
-            web.page().print(printer, lambda ok: print(f'Saved PDF to {dest}' if ok else 'PDF save failed'))
-        run_js('document.title', save_pdf)
+        dest = get_save_path(web.title() or 'page', 'pdf')
+        print(f'Saving PDF to {dest}...')
+        page.printToPdf(dest)
     
     # Ctrl+S - Save as HTML
     elif key == Qt.Key.Key_S and modifiers == Qt.KeyboardModifier.ControlModifier:
@@ -441,7 +437,7 @@ def on_key(event):
 # Install event filter for key handling
 class KeyFilter(QObject):
     def eventFilter(self, obj, event):
-        if event.type() == event.Type.KeyPress:
+        if event.type() == QEvent.Type.KeyPress:
             if on_key(event):
                 return True
         return False
