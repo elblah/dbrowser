@@ -33,6 +33,7 @@ Keybindings:
   Ctrl+F          - Find in page (dmenu)
   Ctrl+N          - Find next
   Ctrl+Shift+N    - Find previous
+  Ctrl+Shift+Del  - Clear all browsing data (cache, cookies, storage)
 
 Env vars:
   DBROWSER_DOWNLOAD_DIR - Download directory (default: ~/Downloads)
@@ -67,7 +68,7 @@ for ver in ('4.1', '4.0'):
 else:
     raise SystemExit('No WebKit2 found')
 gi.require_version('Gdk', '3.0')
-from gi.repository import WebKit2, Gtk, Gdk, GLib, Gio  # noqa: E402
+from gi.repository import WebKit2, Gtk, Gdk, GLib  # noqa: E402
 
 url = sys.argv[1]
 debug = os.getenv('DBROWSER_DEBUG')
@@ -163,6 +164,19 @@ import string  # noqa: E402
 clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
 find = web.get_find_controller()
 find_text = ['']
+
+def clear_browsing_data():
+    """Clear all browsing data: cache, cookies, local storage, etc."""
+    data_manager = ctx.get_website_data_manager()
+    
+    # Clear all types of website data from time 0 (beginning)
+    data_manager.clear(
+        WebKit2.WebsiteDataTypes.ALL,
+        0,  # Clear everything from time 0 (beginning)
+        None,  # No cancellable
+        lambda obj, result: print('All browsing data cleared')
+    )
+    print('Cache, cookies, and all site data cleared')
 
 def is_valid_url(text):
     """Check if text looks like a valid URL."""
@@ -331,6 +345,9 @@ def on_key(w, e):
     elif e.keyval == Gdk.KEY_N and e.state & Gdk.ModifierType.CONTROL_MASK:
         find.search_previous()
         print('Find previous')
+    elif e.keyval == Gdk.KEY_Delete and e.state & (Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.SHIFT_MASK):
+        print('Clearing all browsing data...')
+        clear_browsing_data()
     else:
         return False
     return True
