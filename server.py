@@ -118,11 +118,19 @@ def on_resource_load_started(webview, resource, request):
     request_counter[0] += 1
     
     uri = resource.get_uri()
+    
+    # Capture request headers
+    req_headers = {}
+    if hasattr(request, 'get_http_headers'):
+        headers = request.get_http_headers()
+        if headers:
+            headers.foreach(lambda k, v: req_headers.update({k: v}))
+    
     network_requests[req_id] = {
         "id": req_id,
         "uri": uri,
         "method": request.get_http_method() if hasattr(request, 'get_http_method') else "GET",
-        "headers": {},
+        "headers": req_headers,
         "response_headers": {},
         "status": "loading"
     }
@@ -139,6 +147,13 @@ def on_resource_load_started(webview, resource, request):
                 network_requests[req_id]["status_code"] = response.get_status_code()
                 network_requests[req_id]["mime_type"] = response.get_mime_type() or ""
                 network_requests[req_id]["status"] = "complete"
+                # Capture response headers
+                if hasattr(response, 'get_http_headers'):
+                    resp_headers = {}
+                    headers = response.get_http_headers()
+                    if headers:
+                        headers.foreach(lambda k, v: resp_headers.update({k: v}))
+                    network_requests[req_id]["response_headers"] = resp_headers
         except Exception:
             pass
     
