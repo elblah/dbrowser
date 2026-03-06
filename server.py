@@ -1,5 +1,34 @@
 #!/usr/bin/env python3
-"""Browser IPC server - controlled via Unix socket."""
+"""
+Browser IPC server - controlled via Unix socket.
+
+A WebKitGTK-based browser that exposes commands via Unix domain socket.
+Designed for AI agents to control web browsing, execute JavaScript, capture
+screenshots, and monitor network activity.
+
+Environment Variables:
+  DBROWSER_HEADLESS       - Enable native headless mode (true/false, default: false)
+  DBROWSER_FULLSCREEN     - Enable fullscreen mode (true/false, default: false)
+  DBROWSER_WIDTH          - Viewport width in pixels (default: 1280)
+  DBROWSER_HEIGHT         - Viewport height in pixels (default: 800)
+  DBROWSER_TIMEOUT        - JS execution timeout in seconds (default: 10.0)
+  DBROWSER_CONSOLE_BUFFER - Max console log lines to retain (default: 1000)
+  DBROWSER_NETWORK_BUFFER - Max network requests to track (default: 100)
+  DBROWSER_COOKIE_POLICY  - Cookie policy: no_third_party, none, all (default: no_third_party)
+  SOCKET_PATH             - Unix socket path (default: /run/user/{uid}/tmp/dbrowser.sock)
+
+Usage:
+  python3 server.py
+  
+  # With headless mode:
+  DBROWSER_HEADLESS=true python3 server.py
+  
+  # With custom viewport:
+  DBROWSER_WIDTH=1920 DBROWSER_HEIGHT=1080 python3 server.py
+  
+  # Test connection:
+  echo '{"command": ["help"]}' | nc -U /run/user/1000/tmp/dbrowser.sock
+"""
 import os
 import sys
 import socket
@@ -26,6 +55,18 @@ SOCKET_PATH = os.getenv('SOCKET_PATH', DEFAULT_SOCKET_PATH)
 # Buffer sizes
 CONSOLE_BUFFER_SIZE = int(os.getenv('DBROWSER_CONSOLE_BUFFER', 1000))
 NETWORK_BUFFER_SIZE = int(os.getenv('DBROWSER_NETWORK_BUFFER', 100))
+
+# Headless mode settings
+DBROWSER_HEADLESS = os.getenv('DBROWSER_HEADLESS', 'false').lower() in ('true', '1', 'yes')
+DBROWSER_FULLSCREEN = os.getenv('DBROWSER_FULLSCREEN', 'false').lower() in ('true', '1', 'yes')
+DBROWSER_WIDTH = int(os.getenv('DBROWSER_WIDTH', 1280))
+DBROWSER_HEIGHT = int(os.getenv('DBROWSER_HEIGHT', 800))
+
+# JS execution timeout (seconds)
+DBROWSER_TIMEOUT = float(os.getenv('DBROWSER_TIMEOUT', 10.0))
+
+# Cookie policy: no_third_party, none, all
+DBROWSER_COOKIE_POLICY = os.getenv('DBROWSER_COOKIE_POLICY', 'no_third_party')
 
 def show_help():
     """Return help text for AI clients."""
@@ -62,18 +103,50 @@ network_requests = {}
 # Initialize GTK and WebKit
 ctx = WebKit2.WebContext.get_default()
 cookie_manager = ctx.get_cookie_manager()
-cookie_manager.set_accept_policy(WebKit2.CookieAcceptPolicy.NO_THIRD_PARTY)
+
+# Apply cookie policy
+cookie_policies = {
+    'no_third_party': WebKit2.CookieAcceptPolicy.NO_THIRD_PARTY,
+    'none': WebKit2.CookieAcceptPolicy.NEVER,
+    'all': WebKit2.CookieAcceptPolicy.ALWAYS
+}
+cookie_manager.set_accept_policy(cookie_policies.get(DBROWSER_COOKIE_POLICY, WebKit2.CookieAcceptPolicy.NO_THIRD_PARTY))
 
 win = Gtk.Window()
-win.set_default_size(800, 600)
+win.set_default_size(DBROWSER_WIDTH, DBROWSER_HEIGHT)
 web = WebKit2.WebView()
+
+# Set viewport size for headless mode
+if DBROWSER_HEADLESS:
+    web.set_size_request(DBROWSER_WIDTH, DBROWSER_HEIGHT)
+
 settings = web.get_settings()
 settings.set_enable_developer_extras(True)
 settings.set_user_agent('Mozilla/5.0')
 settings.set_allow_file_access_from_file_urls(False)
 settings.set_allow_universal_access_from_file_urls(False)
+
+# Enable native headless mode if available (WebKitGTK 2.36+)
+native_headless_available = False
+if DBROWSER_HEADLESS:
+    try:
+        settings.set_enable_headless_mode(True)
+        native_headless_available = True
+    except AttributeError:
+        print("Warning: Native headless mode not available (requires WebKitGTK 2.36+)", file=sys.stderr)
+        print("  Use xvfb-run for headless operation:", file=sys.stderr)
+        print("  Example: xvfb-run -s '-screen 0 1280x800x24' python server.py", file=sys.stderr)
+
 win.add(web)
 win.show_all()
+
+# Apply fullscreen mode
+if DBROWSER_FULLSCREEN:
+    win.fullscreen()
+
+# Hide window only if native headless mode actually works
+if native_headless_available:
+    win.hide()
 
 # Setup console capture
 user_content = web.get_user_content_manager()
@@ -235,9 +308,8 @@ def handle_command(cmd):
         
         # Wait for result (with timeout)
         import time
-        timeout = 10.0
         start = time.time()
-        while not done[0] and (time.time() - start) < timeout:
+        while not done[0] and (time.time() - start) < DBROWSER_TIMEOUT:
             Gtk.main_iteration_do(False)
         
         if error[0]:
@@ -265,9 +337,8 @@ def handle_command(cmd):
         
         # Wait for result
         import time
-        timeout = 10.0
         start = time.time()
-        while not done[0] and (time.time() - start) < timeout:
+        while not done[0] and (time.time() - start) < DBROWSER_TIMEOUT:
             Gtk.main_iteration_do(False)
         
         if result[0]:
