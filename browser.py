@@ -8,6 +8,7 @@ Usage: browser.py <URL>
 
 Keybindings:
   F1              - Show this help
+  F11             - Toggle fullscreen
   Ctrl+Q          - Quit
   F5 / Ctrl+R     - Reload page
   F12             - Developer tools
@@ -48,6 +49,7 @@ Env vars:
   DBROWSER_MEDIA=1      - Enable media streaming (YouTube, etc)
   DBROWSER_DRM=1        - Enable DRM/encrypted media (Netflix, etc)
   DBROWSER_SIZE         - Window size WxH (default: 800x600)
+  DBROWSER_FULLSCREEN=1 - Start in fullscreen mode
   DBROWSER_DEBUG=1      - Show key events
   DBROWSER_JS_CONSOLE=1 - Log JavaScript console.log/warn/error to console
 ''')
@@ -83,6 +85,7 @@ enable_media = os.getenv('DBROWSER_MEDIA')
 enable_drm = os.getenv('DBROWSER_DRM')
 memory_limit = os.getenv('DBROWSER_MEMORY_LIMIT')
 show_js_console = os.getenv('DBROWSER_JS_CONSOLE')
+fullscreen = os.getenv('DBROWSER_FULLSCREEN', 'false').lower() in ('true', '1', 'yes')
 
 # Context config (must be before WebView creation)
 if memory_limit:
@@ -155,6 +158,13 @@ settings.set_user_agent('Mozilla/5.0')
 win.add(web)
 win.show_all()
 
+# Track fullscreen state
+is_fullscreen = fullscreen
+
+# Apply fullscreen mode if enabled
+if is_fullscreen:
+    win.fullscreen()
+
 # Lazy imports and initialization
 import subprocess  # noqa: E402
 import urllib.parse  # noqa: E402
@@ -197,6 +207,16 @@ def on_key(w, e):
         print(f'key pressed: keyval={e.keyval}, state={e.state}')
     if e.keyval == Gdk.KEY_F1:
         show_help()
+    elif e.keyval == Gdk.KEY_F11:
+        global is_fullscreen
+        if is_fullscreen:
+            win.unfullscreen()
+            is_fullscreen = False
+            print('Exited fullscreen')
+        else:
+            win.fullscreen()
+            is_fullscreen = True
+            print('Entered fullscreen')
     elif e.keyval == Gdk.KEY_q and e.state & Gdk.ModifierType.CONTROL_MASK:
         print('Quitting...')
         Gtk.main_quit()
