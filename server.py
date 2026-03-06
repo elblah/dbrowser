@@ -309,8 +309,9 @@ def handle_client(sock, cond):
         # Read all available data (non-blocking)
         import select
         data = b''
+        # Wait up to 2 seconds for incoming data
         while True:
-            ready, _, _ = select.select([conn], [], [], 0.1)
+            ready, _, _ = select.select([conn], [], [], 0.5)
             if ready:
                 chunk = conn.recv(4096)
                 if not chunk:
@@ -319,9 +320,10 @@ def handle_client(sock, cond):
                 # Check if we have a complete message (newline terminated or JSON complete)
                 if b'\n' in data:
                     break
-            else:
+            elif data:
+                # Got some data, wait is over
                 break
-        
+
         if data:
             text = data.decode('utf-8').strip()
             # Accept plain "help" command
@@ -333,7 +335,9 @@ def handle_client(sock, cond):
                     response = handle_command(cmd)
                 except json.JSONDecodeError:
                     response = {"status": "error", "message": "Invalid JSON. Use 'help' for usage."}
-            conn.send(json.dumps(response).encode('utf-8'))
+            # Switch to blocking for sending large responses
+            conn.setblocking(True)
+            conn.sendall(json.dumps(response).encode('utf-8'))
     except Exception as e:
         print(f"Error: {e}")
     finally:
@@ -371,6 +375,9 @@ def main():
     print(f"Browser server listening on {SOCKET_PATH}")
     print(f"Buffers: console={CONSOLE_BUFFER_SIZE}, network={NETWORK_BUFFER_SIZE}")
     print(f"Test: echo '{{\"command\": [\"help\"]}}' | nc -U {SOCKET_PATH}")
+    
+    # Exit when window is closed
+    win.connect('destroy', lambda w: Gtk.main_quit())
     
     try:
         Gtk.main()
