@@ -35,6 +35,7 @@ Keybindings:
   Ctrl+N          - Find next
   Ctrl+Shift+N    - Find previous
   Ctrl+Shift+Del  - Clear all browsing data (cache, cookies, storage)
+  Ctrl+W          - Toggle new window redirect (open popup links in current window)
 
 Env vars:
   DBROWSER_DOWNLOAD_DIR - Download directory (default: ~/Downloads)
@@ -160,6 +161,9 @@ win.show_all()
 
 # Track fullscreen state
 is_fullscreen = fullscreen
+
+# Track new window redirect toggle (off by default for security)
+redirect_new_windows = False
 
 # Apply fullscreen mode if enabled
 if is_fullscreen:
@@ -368,6 +372,11 @@ def on_key(w, e):
     elif e.keyval == Gdk.KEY_Delete and e.state & (Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.SHIFT_MASK):
         print('Clearing all browsing data...')
         clear_browsing_data()
+    elif e.keyval == Gdk.KEY_w and e.state & Gdk.ModifierType.CONTROL_MASK:
+        global redirect_new_windows
+        redirect_new_windows = not redirect_new_windows
+        status = 'ON' if redirect_new_windows else 'OFF'
+        print(f'New window redirect: {status} (links opening in new window will load here instead)')
     else:
         return False
     return True
@@ -383,7 +392,32 @@ def on_download(ctx, download):
         return True
     download.connect('decide-destination', on_decide_destination)
 
+def on_decide_policy(webview, decision, decision_type):
+    """Handle policy decisions - redirect new window requests to current window when enabled."""
+    if decision_type == WebKit2.PolicyDecisionType.NEW_WINDOW_ACTION:
+        action = decision.get_navigation_action()
+        uri = None
+        if action:
+            request = action.get_request()
+            if request:
+                uri = request.get_uri()
+        
+        if redirect_new_windows:
+            if uri:
+                print(f'New window request redirected to: {uri}')
+                webview.load_uri(uri)
+        else:
+            if uri:
+                print(f'New window blocked: {uri} (press Ctrl+W to enable)')
+            else:
+                print('New window request blocked (press Ctrl+W to enable)')
+        # Always ignore the new window request
+        decision.ignore()
+        return True
+    return False
+
 WebKit2.WebContext.get_default().connect('download-started', on_download)
+web.connect('decide-policy', on_decide_policy)
 win.connect('destroy', Gtk.main_quit)
 win.connect('key-press-event', on_key)
 
