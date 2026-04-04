@@ -482,4 +482,15 @@ if show_js_console:
 
 web.load_uri(url)
 win.show_all()
+
+# Load plugins — run in global scope, full access to web, win, ctx, etc.
+plugins_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'plugins')
+if os.path.isdir(plugins_dir):
+    for fname in sorted(os.listdir(plugins_dir)):
+        if fname.endswith('.py') and not fname.startswith('_'):
+            path = os.path.join(plugins_dir, fname)
+            print(f'Loading plugin: {fname}')
+            with open(path) as f:
+                exec(compile(f.read(), path, 'exec'), globals())
+
 Gtk.main()
