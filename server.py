@@ -18,7 +18,7 @@ Environment Variables:
   SOCKET_PATH             - Unix socket path (default: /run/user/{uid}/tmp/dbrowser.sock)
 
 Usage:
-  python3 server.py
+  python3 server.py [url]
   
   # With headless mode:
   DBROWSER_HEADLESS=true python3 server.py
@@ -34,6 +34,7 @@ import sys
 import socket
 import json
 import base64
+import subprocess
 import warnings
 warnings.filterwarnings('ignore', category=DeprecationWarning, module='gi.repository')
 import gi  # noqa: E402
@@ -68,10 +69,44 @@ DBROWSER_TIMEOUT = float(os.getenv('DBROWSER_TIMEOUT', 10.0))
 # Cookie policy: no_third_party, none, all
 DBROWSER_COOKIE_POLICY = os.getenv('DBROWSER_COOKIE_POLICY', 'no_third_party')
 
+# Device profiles
+DEVICE_PROFILES = {
+    'phone-portrait':   (375, 812),
+    'phone-landscape':  (812, 375),
+    'tablet-portrait':  (768, 1024),
+    'tablet-landscape': (1024, 768),
+}
+
+def select_device(profile=None):
+    """Resize window to a device profile. If no profile given, show rofi."""
+    if profile and profile in DEVICE_PROFILES:
+        w, h = DEVICE_PROFILES[profile]
+        win.resize(w, h)
+        return {"status": "ok", "data": f"resized to {profile} ({w}x{h})"}
+
+    # No profile or invalid — show rofi picker
+    options = '\n'.join(DEVICE_PROFILES.keys())
+    try:
+        result = subprocess.run(
+            ['rofi', '-dmenu', '-p', 'Device', '-i'],
+            input=options, capture_output=True, text=True, timeout=30
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return {"status": "error", "message": "rofi not found"}
+
+    selected = result.stdout.strip()
+    if selected and selected in DEVICE_PROFILES:
+        w, h = DEVICE_PROFILES[selected]
+        win.resize(w, h)
+        return {"status": "ok", "data": f"resized to {selected} ({w}x{h})"}
+    return {"status": "error", "message": "No device selected"}
+
 def show_help():
     """Return help text for AI clients."""
     return '''
 Browser IPC Server Commands:
+
+Usage: python3 server.py [url]
 
 All commands sent as JSON: {"command": ["cmd", "arg1", "arg2", ...]}
 Responses are JSON: {"status": "ok", "data": ...} or {"status": "error", "message": ...}
@@ -93,10 +128,12 @@ Commands:
   fullscreen                                - Enter fullscreen
   unfullscreen                              - Exit fullscreen
   rotate                                    - Swap width/height (simulate device rotation)
+  device [profile]                          - Select device profile (phone-portrait, phone-landscape, tablet-portrait, tablet-landscape)
 
 Keyboard shortcuts:
   F5 / Ctrl+R                               - Reload page
   Ctrl+Shift+M                              - Rotate (swap width/height)
+  Ctrl+Shift+D                              - Select device (rofi)
 
 Examples:
   echo \'{"command": ["help"]}\' | nc -U /run/user/1000/tmp/dbrowser.sock
@@ -165,6 +202,12 @@ def on_key_press(widget, event):
         event.state & Gdk.ModifierType.SHIFT_MASK and
         event.keyval == Gdk.KEY_M):
         rotate_window()
+        return True
+    # Ctrl+Shift+D to select device
+    if (event.state & Gdk.ModifierType.CONTROL_MASK and
+        event.state & Gdk.ModifierType.SHIFT_MASK and
+        event.keyval == Gdk.KEY_D):
+        select_device()
         return True
     return False
 
@@ -269,8 +312,9 @@ def on_resource_load_started(webview, resource, request):
 
 web.connect("resource-load-started", on_resource_load_started)
 
-# Load blank page initially
-web.load_uri('about:blank')
+# Load initial page
+initial_url = sys.argv[1] if len(sys.argv) > 1 else 'about:blank'
+web.load_uri(initial_url)
 
 def handle_command(cmd):
     """Process a command and return response dict."""
@@ -441,6 +485,10 @@ def handle_command(cmd):
         rotate_window()
         alloc = win.get_allocation()
         return {"status": "ok", "data": f"rotated to {alloc.width}x{alloc.height}"}
+    
+    if name == 'device':
+        profile = args[1] if len(args) > 1 else None
+        return select_device(profile)
     
     return {"status": "error", "message": f"Unknown command: {name}"}
 

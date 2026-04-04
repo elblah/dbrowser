@@ -7,15 +7,15 @@ A minimalist WebKit2 browser.
 - Python 3
 - GTK 3
 - WebKit2GTK 4.0+
-- dmenu (for URL input and find)
+- rofi (for URL input, bookmarks, and find)
 
 Install on Debian/Ubuntu:
 ```bash
 # for Webkit (browser.py)
-apt install python3-gi gir1.2-webkit2-4.1 suckless-tools
+apt install python3-gi gir1.2-webkit2-4.1 rofi
 
 # for QtWebEngine (qtbrowser.py):
-apt install python3-pyqt6 python3-pyqt6.qtwebengine suckless-tools
+apt install python3-pyqt6 python3-pyqt6.qtwebengine rofi
 ```
 
 ## Usage
@@ -36,8 +36,8 @@ apt install python3-pyqt6 python3-pyqt6.qtwebengine suckless-tools
 | Ctrl+Shift+P | Save as PDF |
 | Ctrl+S | Save as HTML (MHTML) |
 | Ctrl+Shift+S | Save screenshot (PNG) |
-| Ctrl+L | Change URL (dmenu) |
-| Ctrl+B | Open bookmark (dmenu) |
+| Ctrl+L | Change URL (rofi) |
+| Ctrl+B | Open bookmark (rofi) |
 | Ctrl+G | Load URL from tmux buffer |
 | Ctrl+Shift+G | Load URL from clipboard |
 | Alt+Left / Alt+H / Alt+, | Go back |

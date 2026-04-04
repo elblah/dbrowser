@@ -28,8 +28,8 @@ Keybindings:
   Ctrl+Shift+P    - Save page as PDF
   Ctrl+S          - Save page as HTML
   Ctrl+Shift+S    - Save page screenshot as PNG
-  Ctrl+L          - Change URL (dmenu)
-  Ctrl+B          - Open link from bookmarks (dmenu)
+  Ctrl+L          - Change URL (rofi)
+  Ctrl+B          - Open link from bookmarks (rofi)
   Ctrl+G          - Load URL from tmux buffer
   Ctrl+Shift+G    - Load URL from clipboard
   Alt+Left / Alt+H / Alt+,  - Go back
@@ -43,7 +43,7 @@ Keybindings:
   Ctrl++          - Zoom in
   Ctrl+-          - Zoom out
   Ctrl+0          - Zoom reset
-  Ctrl+F          - Find in page (dmenu)
+  Ctrl+F          - Find in page (rofi)
   Ctrl+N          - Find next
   Ctrl+Shift+N    - Find previous
 
@@ -364,17 +364,17 @@ def on_key(event):
         else:
             print(f'Clipboard is not a valid URL: {url_text[:50] if url_text else "(empty)"}...')
     
-    # Ctrl+L - Change URL via dmenu
+    # Ctrl+L - Change URL via rofi
     elif key == Qt.Key.Key_L and modifiers == Qt.KeyboardModifier.ControlModifier:
-        print('Opening dmenu for URL...')
+        print('Opening rofi for URL...')
         current_url_disp = web.url().toString() if web.url() else ''
-        new_url = subprocess.run(['dmenu', '-p', 'URL'], input=current_url_disp,
+        new_url = subprocess.run(['rofi', '-dmenu', '-p', 'URL', '-i'], input=current_url_disp,
                                  capture_output=True, text=True).stdout.strip()
         if new_url:
             print(f'Navigating to: {new_url}')
             web.load(QUrl(new_url))
     
-    # Ctrl+B - Open bookmark via dmenu
+    # Ctrl+B - Open bookmark via rofi
     elif key == Qt.Key.Key_B and modifiers == Qt.KeyboardModifier.ControlModifier:
         links_path = os.getenv('BOOKMARKS_FILE') or os.path.expanduser('~/data/links.txt')
         try:
@@ -383,7 +383,7 @@ def on_key(event):
         except FileNotFoundError:
             print(f'Links file not found: {links_path}')
             return
-        selected = subprocess.run(['dmenu', '-i', '-l', '20', '-p', 'Open link:'],
+        selected = subprocess.run(['rofi', '-dmenu', '-i', '-l', '20', '-p', 'Open link:'],
                                   input=links, capture_output=True, text=True).stdout.strip()
         if selected:
             print(f'Opening: {selected}')
@@ -460,7 +460,7 @@ def on_key(event):
     
     # Ctrl+F - Find
     elif key == Qt.Key.Key_F and modifiers == Qt.KeyboardModifier.ControlModifier:
-        search = subprocess.run(['dmenu', '-p', 'Find'], input=find_text[0],
+        search = subprocess.run(['rofi', '-dmenu', '-p', 'Find', '-i'], input=find_text[0],
                                 capture_output=True, text=True).stdout.strip()
         if search:
             find_text[0] = search

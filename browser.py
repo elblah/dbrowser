@@ -16,8 +16,8 @@ Keybindings:
   Ctrl+Shift+P    - Save page as PDF
   Ctrl+S          - Save page as HTML
   Ctrl+Shift+S    - Save page screenshot as PNG
-  Ctrl+L          - Change URL (dmenu)
-  Ctrl+B          - Open link from bookmarks (dmenu)
+  Ctrl+L          - Change URL (rofi)
+  Ctrl+B          - Open link from bookmarks (rofi)
   Ctrl+G          - Load URL from tmux buffer
   Ctrl+Shift+G    - Load URL from clipboard
   Alt+Left / Alt+H / Alt+,  - Go back
@@ -31,7 +31,7 @@ Keybindings:
   Ctrl++          - Zoom in
   Ctrl+-          - Zoom out
   Ctrl+0          - Zoom reset
-  Ctrl+F          - Find in page (dmenu)
+  Ctrl+F          - Find in page (rofi)
   Ctrl+N          - Find next
   Ctrl+Shift+N    - Find previous
   Ctrl+Shift+Del  - Clear all browsing data (cache, cookies, storage)
@@ -302,8 +302,8 @@ def on_key(w, e):
         else:
             print(f'Clipboard is not a valid URL: {url_text[:50] if url_text else "(empty)"}...')
     elif e.keyval == Gdk.KEY_l and e.state & Gdk.ModifierType.CONTROL_MASK and not (e.state & Gdk.ModifierType.SHIFT_MASK):
-        print('Opening dmenu for URL...')
-        new_url = subprocess.run(['dmenu', '-p', 'URL'], input=web.get_uri(),
+        print('Opening rofi for URL...')
+        new_url = subprocess.run(['rofi', '-dmenu', '-p', 'URL', '-i'], input=web.get_uri(),
                                  capture_output=True, text=True).stdout.strip()
         if new_url:
             print(f'Navigating to: {new_url}')
@@ -316,7 +316,7 @@ def on_key(w, e):
         except FileNotFoundError:
             print(f'Links file not found: {links_path}')
             return
-        selected = subprocess.run(['dmenu', '-i', '-l', '20', '-p', 'Open link:'],
+        selected = subprocess.run(['rofi', '-dmenu', '-i', '-l', '20', '-p', 'Open link:'],
                                   input=links, capture_output=True, text=True).stdout.strip()
         if selected:
             print(f'Opening: {selected}')
@@ -362,7 +362,7 @@ def on_key(w, e):
         web.set_zoom_level(1.0)
         print('Zoom: 1.0')
     elif e.keyval == Gdk.KEY_f and e.state & Gdk.ModifierType.CONTROL_MASK:
-        search = subprocess.run(['dmenu', '-p', 'Find'], input=find_text[0],
+        search = subprocess.run(['rofi', '-dmenu', '-p', 'Find', '-i'], input=find_text[0],
                                 capture_output=True, text=True).stdout.strip()
         if search:
             find_text[0] = search
