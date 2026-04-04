@@ -1,17 +1,4 @@
 #!/usr/bin/env python3
-# ruff: noqa: F821, E402
-"""
-dbrowser — minimal core that loads an engine + plugins.
-
-Env vars:
-  DBROWSER_WEBENGINE    - Engine to use: webkit, qt (default: webkit)
-  DBROWSER_SIZE         - Window size WxH (default: 800x600)
-  DBROWSER_FULLSCREEN=1 - Start in fullscreen mode
-  DBROWSER_DEBUG=1      - Show key events
-  ... (engine-specific vars)
-
-Usage: browser.py <URL>
-"""
 import sys
 import os
 
@@ -52,7 +39,6 @@ Keybindings:
   Ctrl+Shift+M    - Rotate (swap width/height)
 
 Env vars:
-  DBROWSER_WEBENGINE    - Engine: webkit, qt (default: webkit)
   DBROWSER_DOWNLOAD_DIR - Download directory (default: ~/Downloads)
   DBROWSER_CACHE_DIR    - Custom cache directory
   DBROWSER_NO_CACHE=1   - Disable disk cache
@@ -74,31 +60,153 @@ if len(sys.argv) >= 2 and sys.argv[1] in ('-h', '--help'):
     show_help()
     sys.exit(0)
 
-# ── Load engine ──────────────────────────────────────────────────────────
-engine_name = os.getenv('DBROWSER_WEBENGINE', 'webkit')
-engines_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'engines')
-
-# Try requested engine first, then auto-detect
-candidates = [engine_name]
-if engine_name == 'webkit':
-    candidates.append('qt')
-elif engine_name == 'qt':
-    candidates.append('webkit')
-
-loaded = False
-for name in candidates:
-    path = os.path.join(engines_dir, f'{name}.py')
-    if os.path.isfile(path):
-        print(f'Loading engine: {name}')
-        with open(path) as f:
-            exec(compile(f.read(), path, 'exec'), globals())
-        loaded = True
+import warnings  # noqa: E402
+warnings.filterwarnings('ignore', category=DeprecationWarning, module='gi.repository')
+import gi  # noqa: E402
+for ver in ('4.1', '4.0'):
+    try:
+        gi.require_version('WebKit2', ver)
         break
+    except ValueError:
+        pass
+else:
+    raise SystemExit('No WebKit2 found')
+gi.require_version('Gdk', '3.0')
+from gi.repository import WebKit2, Gtk, Gdk, GLib  # noqa: E402
 
-if not loaded:
-    raise SystemExit(f'No engine found. Tried: {", ".join(candidates)}')
+url = sys.argv[1] if len(sys.argv) > 1 else 'about:blank'
+debug = os.getenv('DBROWSER_DEBUG')
+cache_dir = os.getenv('DBROWSER_CACHE_DIR')
+no_cache = os.getenv('DBROWSER_NO_CACHE')
+no_js = os.getenv('DBROWSER_NO_JS')
+low_mem = os.getenv('DBROWSER_LOW_MEM')
+fast = os.getenv('DBROWSER_FAST')
+no_images = os.getenv('DBROWSER_NO_IMAGES')
+enable_webgl = os.getenv('DBROWSER_WEBGL')
+enable_media = os.getenv('DBROWSER_MEDIA')
+enable_drm = os.getenv('DBROWSER_DRM')
+memory_limit = os.getenv('DBROWSER_MEMORY_LIMIT')
+show_js_console = os.getenv('DBROWSER_JS_CONSOLE')
+fullscreen = os.getenv('DBROWSER_FULLSCREEN', 'false').lower() in ('true', '1', 'yes')
 
-# ── Keyboard handler ─────────────────────────────────────────────────────
+# Context config (must be before WebView creation)
+if memory_limit:
+    # Create custom data manager for memory control
+    data_manager = WebKit2.WebsiteDataManager()
+    try:
+        mem_mb = int(memory_limit)
+        mps = WebKit2.MemoryPressureSettings()
+        mps.set_memory_limit(mem_mb)
+        mps.set_kill_threshold(0.95)         # 95% of limit (set first)
+        mps.set_strict_threshold(0.85)       # 85% of limit
+        mps.set_conservative_threshold(0.7)  # 70% of limit
+        data_manager.set_memory_pressure_settings(mps)
+    except ValueError:
+        pass
+    ctx = WebKit2.WebContext.new_with_website_data_manager(data_manager)
+else:
+    ctx = WebKit2.WebContext.get_default()
+    if cache_dir:
+        ctx.set_disk_cache_directory(os.path.expanduser(cache_dir))
+
+if no_cache or low_mem:
+    ctx.set_cache_model(WebKit2.CacheModel.DOCUMENT_VIEWER)
+
+# Block third-party cookies
+cookie_manager = ctx.get_cookie_manager()
+cookie_manager.set_accept_policy(WebKit2.CookieAcceptPolicy.NO_THIRD_PARTY)
+
+# Use single process to reduce memory
+if low_mem:
+    ctx.set_process_model(WebKit2.ProcessModel.SHARED_SECONDARY_PROCESS)
+
+win = Gtk.Window()
+size = os.getenv('DBROWSER_SIZE', '800x600')
+w, h = map(int, size.split('x'))
+win.set_default_size(w, h)
+web = WebKit2.WebView()
+settings = web.get_settings()
+settings.set_enable_developer_extras(True)
+settings.set_enable_mediasource(bool(enable_media))
+settings.set_enable_media_stream(bool(enable_media))
+settings.set_enable_encrypted_media(bool(enable_drm))
+settings.set_hardware_acceleration_policy(WebKit2.HardwareAccelerationPolicy.ON_DEMAND)
+# Disable expensive/insecure features by default
+settings.set_enable_webgl(False)
+settings.set_enable_smooth_scrolling(False)
+# File access isolation - prevent local file exfiltration
+settings.set_allow_file_access_from_file_urls(False)
+settings.set_allow_universal_access_from_file_urls(False)
+# Restrict JS capabilities
+settings.set_javascript_can_access_clipboard(False)
+settings.set_javascript_can_open_windows_automatically(False)
+if no_js:
+    settings.set_enable_javascript(False)
+if low_mem:
+    settings.set_enable_page_cache(False)
+    settings.set_enable_offline_web_application_cache(False)
+    settings.set_enable_html5_database(False)
+    settings.set_enable_html5_local_storage(False)
+    settings.set_minimum_font_size(10)
+if fast:
+    settings.set_enable_dns_prefetching(True)
+    settings.set_enable_page_cache(True)
+if enable_webgl:
+    settings.set_enable_webgl(True)
+    settings.set_hardware_acceleration_policy(WebKit2.HardwareAccelerationPolicy.ALWAYS)
+if no_images:
+    settings.set_auto_load_images(False)
+settings.set_user_agent('Mozilla/5.0')
+win.add(web)
+win.show_all()
+
+# Track fullscreen state
+is_fullscreen = fullscreen
+
+# Track new window redirect toggle (off by default for security)
+redirect_new_windows = False
+
+# Apply fullscreen mode if enabled
+if is_fullscreen:
+    win.fullscreen()
+
+# Lazy imports and initialization
+import subprocess  # noqa: E402
+import urllib.parse  # noqa: E402
+import random  # noqa: E402
+import string  # noqa: E402
+
+clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
+find = web.get_find_controller()
+find_text = ['']
+
+def clear_browsing_data():
+    """Clear all browsing data: cache, cookies, local storage, etc."""
+    data_manager = ctx.get_website_data_manager()
+    
+    # Clear all types of website data from time 0 (beginning)
+    data_manager.clear(
+        WebKit2.WebsiteDataTypes.ALL,
+        0,  # Clear everything from time 0 (beginning)
+        None,  # No cancellable
+        lambda obj, result: print('All browsing data cleared')
+    )
+    print('Cache, cookies, and all site data cleared')
+
+def is_valid_url(text):
+    """Check if text looks like a valid URL."""
+    if not text:
+        return False
+    return text.startswith(('http://', 'https://', 'ftp://', 'file://'))
+
+def get_save_path(title, ext):
+    """Generate a safe file path with random suffix for saving."""
+    safe_title = ''.join(c if c.isalnum() or c in '-_' else '_' for c in title)
+    rand_suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=7))
+    path = os.path.expanduser(os.getenv('DBROWSER_DOWNLOAD_DIR', '~/Downloads'))
+    os.makedirs(path, exist_ok=True)
+    return f'{path}/{safe_title}__{rand_suffix}.{ext}'
+
 def on_key(w, e):
     if debug:
         print(f'key pressed: keyval={e.keyval}, state={e.state}')
@@ -134,6 +242,8 @@ def on_key(w, e):
         def on_title(wv, result, data):
             title = wv.run_javascript_finish(result).get_js_value().to_string() or 'page'
             dest = get_save_path(title, 'pdf')
+            
+            # Use PrintOperation to save directly to PDF without dialog
             print_op = WebKit2.PrintOperation.new(web)
             settings = Gtk.PrintSettings()
             settings.set_printer('Print to File')
@@ -150,7 +260,7 @@ def on_key(w, e):
             dest = get_save_path(title, 'html')
             def on_save_finished(wv, result, data):
                 stream = wv.save_finish(result)
-                data = stream.read_bytes(10 * 1024 * 1024, None)
+                data = stream.read_bytes(10 * 1024 * 1024, None)  # Read up to 10MB
                 html = data.get_data().decode('utf-8')
                 with open(dest, 'w') as f:
                     f.write(html)
@@ -211,10 +321,16 @@ def on_key(w, e):
         if selected:
             print(f'Opening: {selected}')
             web.load_uri(selected)
-    elif e.keyval in (Gdk.KEY_Left, Gdk.KEY_h, Gdk.KEY_comma) and e.state & Gdk.ModifierType.MOD1_MASK:
+    elif e.keyval == Gdk.KEY_Left and e.state & Gdk.ModifierType.MOD1_MASK:
         print('Going back...')
         web.go_back()
-    elif e.keyval in (Gdk.KEY_Right, Gdk.KEY_l, Gdk.KEY_period) and e.state & Gdk.ModifierType.MOD1_MASK:
+    elif e.keyval == Gdk.KEY_Right and e.state & Gdk.ModifierType.MOD1_MASK:
+        print('Going forward...')
+        web.go_forward()
+    elif e.keyval == Gdk.KEY_h and e.state & Gdk.ModifierType.MOD1_MASK:
+        print('Going back...')
+        web.go_back()
+    elif e.keyval == Gdk.KEY_l and e.state & Gdk.ModifierType.MOD1_MASK:
         print('Going forward...')
         web.go_forward()
     elif e.keyval == Gdk.KEY_j and e.state & Gdk.ModifierType.MOD1_MASK:
@@ -225,6 +341,12 @@ def on_key(w, e):
         web.run_javascript('window.scrollBy(0, window.innerHeight)', None, None)
     elif e.keyval == Gdk.KEY_i and e.state & Gdk.ModifierType.MOD1_MASK:
         web.run_javascript('window.scrollBy(0, -window.innerHeight)', None, None)
+    elif e.keyval == Gdk.KEY_comma and e.state & Gdk.ModifierType.MOD1_MASK:
+        print('Going back...')
+        web.go_back()
+    elif e.keyval == Gdk.KEY_period and e.state & Gdk.ModifierType.MOD1_MASK:
+        print('Going forward...')
+        web.go_forward()
     elif e.keyval == Gdk.KEY_U and e.state & (Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.SHIFT_MASK):
         url_text = web.get_uri()
         subprocess.run(['tmux', 'set-buffer', url_text], check=False)
@@ -264,10 +386,104 @@ def on_key(w, e):
         return False
     return True
 
+def on_download(ctx, download):
+    def on_decide_destination(d, suggested):
+        path = os.path.expanduser(os.getenv('DBROWSER_DOWNLOAD_DIR', '~/Downloads'))
+        os.makedirs(path, exist_ok=True)
+        dest = path + '/' + (suggested or 'download')
+        d.set_destination('file://' + urllib.parse.quote(dest))
+        print(f'Saving file to {dest} ...')
+        d.connect('finished', lambda dl: print(f'File {dest} saved'))
+        return True
+    download.connect('decide-destination', on_decide_destination)
+
+def on_decide_policy(webview, decision, decision_type):
+    """Handle policy decisions - redirect new window requests to current window when enabled."""
+    if decision_type == WebKit2.PolicyDecisionType.NEW_WINDOW_ACTION:
+        action = decision.get_navigation_action()
+        uri = None
+        if action:
+            request = action.get_request()
+            if request:
+                uri = request.get_uri()
+        
+        if redirect_new_windows:
+            if uri:
+                print(f'New window request redirected to: {uri}')
+                webview.load_uri(uri)
+        else:
+            if uri:
+                print(f'New window blocked: {uri} (press Ctrl+W to enable)')
+            else:
+                print('New window request blocked (press Ctrl+W to enable)')
+        # Always ignore the new window request
+        decision.ignore()
+        return True
+    return False
+
+WebKit2.WebContext.get_default().connect('download-started', on_download)
+web.connect('decide-policy', on_decide_policy)
 win.connect('destroy', Gtk.main_quit)
 win.connect('key-press-event', on_key)
 
-# ── Load plugins ─────────────────────────────────────────────────────────
+def on_title_changed(webview, pspec):
+    title = webview.get_title() or 'Loading...'
+    progress = webview.get_estimated_load_progress()
+    if progress < 1.0:
+        win.set_title(f'{title} - dbrowser ({int(progress * 100)}%)')
+    else:
+        win.set_title(f'{title} - dbrowser')
+web.connect('notify::title', on_title_changed)
+
+def on_load_progress(webview, pspec):
+    title = webview.get_title() or 'Loading...'
+    progress = webview.get_estimated_load_progress()
+    if progress < 1.0:
+        win.set_title(f'{title} - dbrowser ({int(progress * 100)}%)')
+    else:
+        win.set_title(f'{title} - dbrowser')
+web.connect('notify::estimated-load-progress', on_load_progress)
+
+win.set_title('dbrowser')
+
+if show_js_console:
+    user_content = web.get_user_content_manager()
+    user_content.register_script_message_handler('console')
+
+    def on_console_message(user_content, result):
+        message = result.get_js_value().to_string()
+        print(f'[JS] {message}')
+    user_content.connect('script-message-received::console', on_console_message)
+
+    console_script = '''
+    (function() {
+        const originalLog = console.log;
+        const originalWarn = console.warn;
+        const originalError = console.error;
+        const sendMessage = (level, args) => {
+            const msg = args.map(arg => {
+                if (typeof arg === 'object') {
+                    try {
+                        return JSON.stringify(arg);
+                    } catch (e) {
+                        return String(arg);
+                    }
+                }
+                return String(arg);
+            }).join(' ');
+            window.webkit.messageHandlers.console.postMessage(`[${level}] ${msg}`);
+        };
+        console.log = (...args) => { originalLog(...args); sendMessage('log', args); };
+        console.warn = (...args) => { originalWarn(...args); sendMessage('warn', args); };
+        console.error = (...args) => { originalError(...args); sendMessage('error', args); };
+    })();
+    '''
+    user_content.add_script(WebKit2.UserScript(console_script, 0, 0, None, None))
+
+web.load_uri(url)
+win.show_all()
+
+# Load plugins — run in global scope, full access to web, win, ctx, etc.
 plugins_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'plugins')
 if os.path.isdir(plugins_dir):
     for fname in sorted(os.listdir(plugins_dir)):
