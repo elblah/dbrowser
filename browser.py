@@ -56,7 +56,7 @@ Env vars:
   DBROWSER_JS_CONSOLE=1 - Log JavaScript console.log/warn/error to console
 ''')
 
-if len(sys.argv) < 2 or sys.argv[1] in ('-h', '--help'):
+if len(sys.argv) >= 2 and sys.argv[1] in ('-h', '--help'):
     show_help()
     sys.exit(0)
 
@@ -74,7 +74,7 @@ else:
 gi.require_version('Gdk', '3.0')
 from gi.repository import WebKit2, Gtk, Gdk, GLib  # noqa: E402
 
-url = sys.argv[1]
+url = sys.argv[1] if len(sys.argv) > 1 else 'about:blank'
 debug = os.getenv('DBROWSER_DEBUG')
 cache_dir = os.getenv('DBROWSER_CACHE_DIR')
 no_cache = os.getenv('DBROWSER_NO_CACHE')
