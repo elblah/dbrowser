@@ -36,6 +36,7 @@ Keybindings:
   Ctrl+Shift+N    - Find previous
   Ctrl+Shift+Del  - Clear all browsing data (cache, cookies, storage)
   Ctrl+W          - Toggle new window redirect (open popup links in current window)
+  Ctrl+Shift+M    - Rotate (swap width/height)
 
 Env vars:
   DBROWSER_DOWNLOAD_DIR - Download directory (default: ~/Downloads)
@@ -224,6 +225,10 @@ def on_key(w, e):
     elif e.keyval == Gdk.KEY_q and e.state & Gdk.ModifierType.CONTROL_MASK:
         print('Quitting...')
         Gtk.main_quit()
+    elif e.keyval == Gdk.KEY_M and e.state & (Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.SHIFT_MASK):
+        alloc = win.get_allocation()
+        win.resize(alloc.height, alloc.width)
+        print(f'Rotated to {alloc.height}x{alloc.width}')
     elif e.keyval == Gdk.KEY_F5 or (e.keyval == Gdk.KEY_r and e.state & Gdk.ModifierType.CONTROL_MASK):
         print('Reloading...')
         web.reload()

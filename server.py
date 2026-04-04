@@ -46,7 +46,7 @@ for ver in ('4.1', '4.0'):
 else:
     raise SystemExit('No WebKit2 found')
 gi.require_version('Gdk', '3.0')
-from gi.repository import WebKit2, Gtk, GLib  # noqa: E402
+from gi.repository import WebKit2, Gtk, GLib, Gdk  # noqa: E402
 
 # Default socket path
 DEFAULT_SOCKET_PATH = f"/run/user/{os.getuid()}/tmp/dbrowser.sock"
@@ -92,6 +92,11 @@ Commands:
   unmaximize                                - Restore from maximized
   fullscreen                                - Enter fullscreen
   unfullscreen                              - Exit fullscreen
+  rotate                                    - Swap width/height (simulate device rotation)
+
+Keyboard shortcuts:
+  F5 / Ctrl+R                               - Reload page
+  Ctrl+Shift+M                              - Rotate (swap width/height)
 
 Examples:
   echo \'{"command": ["help"]}\' | nc -U /run/user/1000/tmp/dbrowser.sock
@@ -144,6 +149,31 @@ if DBROWSER_HEADLESS:
 
 win.add(web)
 win.show_all()
+
+# Key press handler for reload (F5 and Ctrl+R)
+def on_key_press(widget, event):
+    # F5 to reload
+    if event.keyval == Gdk.KEY_F5:
+        web.reload()
+        return True
+    # Ctrl+R to reload
+    if event.state & Gdk.ModifierType.CONTROL_MASK and event.keyval == Gdk.KEY_r:
+        web.reload()
+        return True
+    # Ctrl+Shift+M to rotate
+    if (event.state & Gdk.ModifierType.CONTROL_MASK and
+        event.state & Gdk.ModifierType.SHIFT_MASK and
+        event.keyval == Gdk.KEY_M):
+        rotate_window()
+        return True
+    return False
+
+def rotate_window():
+    """Swap window width and height to simulate device rotation."""
+    alloc = win.get_allocation()
+    win.resize(alloc.height, alloc.width)
+
+win.connect('key-press-event', on_key_press)
 
 # Apply fullscreen mode
 if DBROWSER_FULLSCREEN:
@@ -406,6 +436,11 @@ def handle_command(cmd):
     if name == 'unfullscreen':
         win.unfullscreen()
         return {"status": "ok", "data": "exited fullscreen"}
+    
+    if name == 'rotate':
+        rotate_window()
+        alloc = win.get_allocation()
+        return {"status": "ok", "data": f"rotated to {alloc.width}x{alloc.height}"}
     
     return {"status": "error", "message": f"Unknown command: {name}"}
 
