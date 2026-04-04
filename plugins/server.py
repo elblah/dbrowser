@@ -151,6 +151,8 @@ IPC Commands:
   fullscreen / unfullscreen                 - Fullscreen toggle
   rotate                                    - Swap width/height
   device [profile]                          - Device profile
+  set-user-agent <ua>                       - Set user agent string
+  get-user-agent                            - Get current user agent
 '''}
 
     if name == 'status':
@@ -295,6 +297,31 @@ IPC Commands:
     if name == 'device':
         profile = args[1] if len(args) > 1 else None
         return select_device(profile)
+
+    if name == 'set-user-agent':
+        if len(args) < 2:
+            return {"status": "error", "message": "set-user-agent requires UA string argument"}
+        ua = args[1]
+        settings.set_user_agent(ua)
+        web.reload()
+        return {"status": "ok", "data": f"user agent set to: {ua[:80]}..."}
+
+    if name == 'get-user-agent':
+        # Get current UA via JS
+        result = [None]
+        done = [False]
+        def on_ua(wv, res, data):
+            try:
+                result[0] = wv.run_javascript_finish(res).get_js_value().to_string()
+            except Exception:
+                pass
+            finally:
+                done[0] = True
+        web.run_javascript('navigator.userAgent', None, on_ua, None)
+        start = time.time()
+        while not done[0] and (time.time() - start) < DBROWSER_TIMEOUT:
+            Gtk.main_iteration_do(False)
+        return {"status": "ok", "data": result[0] or "unknown"}
 
     return {"status": "error", "message": f"Unknown command: {name}"}
 

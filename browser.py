@@ -37,6 +37,7 @@ Keybindings:
   Ctrl+Shift+Del  - Clear all browsing data (cache, cookies, storage)
   Ctrl+W          - Toggle new window redirect (open popup links in current window)
   Ctrl+Shift+M    - Rotate (swap width/height)
+  Ctrl+Shift+A    - Change user agent (rofi)
 
 Env vars:
   DBROWSER_DOWNLOAD_DIR - Download directory (default: ~/Downloads)
@@ -377,6 +378,34 @@ def on_key(w, e):
     elif e.keyval == Gdk.KEY_Delete and e.state & (Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.SHIFT_MASK):
         print('Clearing all browsing data...')
         clear_browsing_data()
+    elif e.keyval == Gdk.KEY_A and e.state & (Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.SHIFT_MASK):
+        # User agent picker
+        ua_profiles = [
+            'Desktop (default)	Mozilla/5.0',
+            'Chrome Linux	Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Firefox Linux	Mozilla/5.0 (X11; Linux x86_64; rv:121.0) Gecko/20100101 Firefox/121.0',
+            'Chrome Android	Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+            'Chrome iPhone	Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1',
+            'Chrome iPad	Mozilla/5.0 (iPad; CPU OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1',
+            'Custom…	',
+        ]
+        ua_options = '\n'.join(ua_profiles)
+        selected = subprocess.run(['rofi', '-dmenu', '-p', 'User Agent', '-i', '-l', str(len(ua_profiles))],
+                                  input=ua_options, capture_output=True, text=True).stdout.strip()
+        if selected:
+            ua = selected.split('\t', 1)[1] if '\t' in selected else selected
+            if ua == '':
+                # Custom — type it
+                custom = subprocess.run(['rofi', '-dmenu', '-p', 'Custom UA'],
+                                        input='', capture_output=True, text=True).stdout.strip()
+                if custom:
+                    ua = custom
+                else:
+                    ua = None
+            if ua:
+                settings.set_user_agent(ua)
+                print(f'UA set to: {ua[:80]}...')
+                web.reload()
     elif e.keyval == Gdk.KEY_w and e.state & Gdk.ModifierType.CONTROL_MASK:
         global redirect_new_windows
         redirect_new_windows = not redirect_new_windows
