@@ -55,6 +55,7 @@ Env vars:
   DBROWSER_FULLSCREEN=1 - Start in fullscreen mode
   DBROWSER_DEBUG=1      - Show key events
   DBROWSER_JS_CONSOLE=1 - Log JavaScript console.log/warn/error to console
+  DBROWSER_UA           - Custom user agent string (default: Mozilla/5.0)
 ''')
 
 if len(sys.argv) >= 2 and sys.argv[1] in ('-h', '--help'):
@@ -157,7 +158,7 @@ if enable_webgl:
     settings.set_hardware_acceleration_policy(WebKit2.HardwareAccelerationPolicy.ALWAYS)
 if no_images:
     settings.set_auto_load_images(False)
-settings.set_user_agent('Mozilla/5.0')
+settings.set_user_agent(os.getenv('DBROWSER_UA', 'Mozilla/5.0'))
 win.add(web)
 win.show_all()
 
