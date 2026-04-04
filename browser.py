@@ -52,6 +52,8 @@ Env vars:
   DBROWSER_MEDIA=1      - Enable media streaming (YouTube, etc)
   DBROWSER_DRM=1        - Enable DRM/encrypted media (Netflix, etc)
   DBROWSER_SIZE         - Window size WxH (default: 800x600)
+  DBROWSER_WIDTH        - Window width (overrides DBROWSER_SIZE)
+  DBROWSER_HEIGHT       - Window height (overrides DBROWSER_SIZE)
   DBROWSER_FULLSCREEN=1 - Start in fullscreen mode
   DBROWSER_DEBUG=1      - Show key events
   DBROWSER_JS_CONSOLE=1 - Log JavaScript console.log/warn/error to console
@@ -123,8 +125,12 @@ if low_mem:
     ctx.set_process_model(WebKit2.ProcessModel.SHARED_SECONDARY_PROCESS)
 
 win = Gtk.Window()
-size = os.getenv('DBROWSER_SIZE', '800x600')
-w, h = map(int, size.split('x'))
+size_str = os.getenv('DBROWSER_SIZE')
+if size_str:
+    w, h = map(int, size_str.split('x'))
+else:
+    w = int(os.getenv('DBROWSER_WIDTH', 800))
+    h = int(os.getenv('DBROWSER_HEIGHT', 600))
 win.set_default_size(w, h)
 web = WebKit2.WebView()
 settings = web.get_settings()
