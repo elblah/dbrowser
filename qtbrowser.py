@@ -64,11 +64,11 @@ Env vars:
 ''')
 
 
-if len(sys.argv) < 2 or sys.argv[1] in ('-h', '--help'):
+if len(sys.argv) >= 2 and sys.argv[1] in ('-h', '--help'):
     show_help()
     sys.exit(0)
 
-url = sys.argv[1]
+url = sys.argv[1] if len(sys.argv) > 1 else 'about:blank'
 
 # Disable hardware acceleration for RPi compatibility
 os.environ.setdefault('QT_QUICK_BACKEND', 'software')
