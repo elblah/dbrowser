@@ -70,11 +70,6 @@ if len(sys.argv) >= 2 and sys.argv[1] in ('-h', '--help'):
 
 url = sys.argv[1] if len(sys.argv) > 1 else 'about:blank'
 
-# Disable hardware acceleration for RPi compatibility
-os.environ.setdefault('QT_QUICK_BACKEND', 'software')
-os.environ.setdefault('QTWEBENGINE_DISABLE_GPU', '1')
-os.environ.setdefault('QTWEBENGINE_CHROMIUM_FLAGS', '--disable-gpu --disable-software-rasterizer')
-
 debug = os.getenv('DBROWSER_DEBUG')
 cache_dir = os.getenv('DBROWSER_CACHE_DIR')
 no_cache = os.getenv('DBROWSER_NO_CACHE')
