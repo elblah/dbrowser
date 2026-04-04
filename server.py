@@ -87,6 +87,11 @@ Commands:
   get-console-output [lines]                - Get console output (default: all, negative: last N)
   list-network-requests [max]               - List network requests (default: all)
   get-network-request <id>                  - Get details of a network request
+  resize <width> <height>                  - Resize the window
+  maximize                                  - Maximize the window
+  unmaximize                                - Restore from maximized
+  fullscreen                                - Enter fullscreen
+  unfullscreen                              - Exit fullscreen
 
 Examples:
   echo \'{"command": ["help"]}\' | nc -U /run/user/1000/tmp/dbrowser.sock
@@ -252,11 +257,14 @@ def handle_command(cmd):
         return {"status": "ok", "data": show_help()}
     
     if name == 'status':
+        alloc = win.get_allocation()
         return {"status": "ok", "data": {
             "url": web.get_uri() or "",
             "title": web.get_title() or "",
             "loading": web.is_loading(),
-            "progress": web.get_estimated_load_progress()
+            "progress": web.get_estimated_load_progress(),
+            "width": alloc.width,
+            "height": alloc.height
         }}
     
     if name == 'back':
@@ -369,6 +377,35 @@ def handle_command(cmd):
         if req_id in network_requests:
             return {"status": "ok", "data": network_requests[req_id]}
         return {"status": "error", "message": f"Request {req_id} not found"}
+    
+    if name == 'resize':
+        if len(args) < 3:
+            return {"status": "error", "message": "resize requires width and height arguments"}
+        try:
+            width = int(args[1])
+            height = int(args[2])
+            if width <= 0 or height <= 0:
+                return {"status": "error", "message": "width and height must be positive"}
+            win.resize(width, height)
+            return {"status": "ok", "data": f"resized to {width}x{height}"}
+        except ValueError:
+            return {"status": "error", "message": "width and height must be integers"}
+    
+    if name == 'maximize':
+        win.maximize()
+        return {"status": "ok", "data": "window maximized"}
+    
+    if name == 'unmaximize':
+        win.unmaximize()
+        return {"status": "ok", "data": "window restored"}
+    
+    if name == 'fullscreen':
+        win.fullscreen()
+        return {"status": "ok", "data": "entered fullscreen"}
+    
+    if name == 'unfullscreen':
+        win.unfullscreen()
+        return {"status": "ok", "data": "exited fullscreen"}
     
     return {"status": "error", "message": f"Unknown command: {name}"}
 
