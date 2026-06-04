@@ -77,6 +77,18 @@ else:
     raise SystemExit('No WebKit2 found')
 gi.require_version('Gdk', '3.0')
 from gi.repository import WebKit2, Gtk, Gdk, GLib  # noqa: E402
+import fcntl  # noqa: E402
+
+# Prevent multiple instances
+_lock_path = os.path.join(os.environ.get('TMP', '/tmp'), 'dbrowser.lock')
+_lock_fd = open(_lock_path, 'w')
+try:
+    fcntl.flock(_lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except BlockingIOError:
+    print("Another instance is running", file=sys.stderr)
+    sys.exit(1)
+_lock_fd.write(str(os.getpid()))
+_lock_fd.flush()
 
 url = sys.argv[1] if len(sys.argv) > 1 else 'about:blank'
 debug = os.getenv('DBROWSER_DEBUG')
