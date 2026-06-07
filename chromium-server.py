@@ -500,26 +500,41 @@ def launch_chromium():
 # --- command handlers ---
 def show_help():
     return """
-Browser IPC Server (chromium backend) Commands:
+Browser IPC Server (chromium backend)
 
-JSON request: {"command": ["cmd", "arg1", ...]}
-Response:     {"status": "ok", "data": ...} | {"status": "error", "message": ...}
+JSON request:  {"command": ["cmd", "arg1", ...]}
+Response:      {"status": "ok", "data": <result>}
+               {"status": "error", "message": "..."}
 
-Commands:
-  help                                      - this help
-  load-url <url>                            - navigate
-  eval-js <code>                            - run JS, return result
-  screenshot                                - PNG, base64
-  back                                      - history back
-  forward                                   - history forward
-  reload                                    - reload page
-  status                                    - url, title, loading, viewport
-  get-console-output [lines]                - all or first N (or last N if negative)
-  list-network-requests [max]               - tracked network reqs
-  get-network-request <id>                  - single req details
-  resize <w> <h>                            - device metrics override
-  device [profile]                          - phone/tablet portrait|landscape
-  cookies [no_third_party|none|all]         - set cookie policy (no-op for now)
+Navigation:
+  load-url <url>                - navigate to url
+  back                          - history back
+  forward                       - history forward
+  reload                        - reload current page
+  status                        - {url, title, ready, width, height, loading}
+
+Inspection:
+  eval-js <code>                - run JS, return value (or description)
+  screenshot                    - PNG, base64-encoded
+  get-console-output [N]        - last N console lines (default: all, N<0: tail)
+
+Network:
+  list-network-requests [max]   - tracked requests [{id,url,type,method,status_code,...}]
+  get-network-request <id>      - single request details (headers, response_headers)
+
+Viewport:
+  resize <w> <h>                - set window size (e.g. resize 1280 800)
+  device [profile]              - viewport preset; profile is one of:
+                                 phone-portrait, phone-landscape,
+                                 tablet-portrait, tablet-landscape
+                                 aliases: phone/mobile/iphone, tablet/ipad, desktop (no-op)
+
+Identity:
+  set-user-agent <ua>           - override User-Agent header
+  cookies                       - no-op (CDP cookie policy is per-context, not used)
+
+Other:
+  help                          - this help
 """
 
 
