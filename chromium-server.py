@@ -517,6 +517,8 @@ Inspection:
   eval-js <code>                - run JS, return value (or description)
   screenshot                    - PNG, base64-encoded
   get-console-output [N]        - last N console lines (default: all, N<0: tail)
+  wait-for-selector <css> [t]   - poll until css matches (default 10s, max 60s)
+  wait-for-text <substr> [t]    - poll until page body contains text (default 10s, max 60s)
 
 Network:
   list-network-requests [max]   - tracked requests [{id,url,type,method,status_code,...}]
@@ -656,6 +658,45 @@ class Server:
                 else:
                     out = buf[:lines]
                 return {"status": "ok", "data": out}
+
+            if name == "wait-for-selector":
+                if len(args) < 2:
+                    return {"status": "error", "message": "wait-for-selector requires css"}
+                css = args[1]
+                timeout = float(args[2]) if len(args) > 2 else 10.0
+                timeout = min(timeout, 60.0)
+                import time as _t
+                deadline = _t.time() + timeout
+                expr = f"document.querySelectorAll({json.dumps(css)}).length"
+                last_count = 0
+                while _t.time() < deadline:
+                    r = self.cdp.send("Runtime.evaluate", {"expression": expr, "returnByValue": True})
+                    if "error" in r:
+                        return {"status": "error", "message": r["error"].get("message", "cdp error")}
+                    last_count = r.get("result", {}).get("result", {}).get("value", 0)
+                    if last_count > 0:
+                        waited = int((timeout - (deadline - _t.time())) * 1000)
+                        return {"status": "ok", "data": {"found": True, "count": last_count, "waited_ms": waited}}
+                    _t.sleep(0.2)
+                return {"status": "ok", "data": {"found": False, "timed_out": True, "count": last_count, "waited_ms": int(timeout * 1000)}}
+
+            if name == "wait-for-text":
+                if len(args) < 2:
+                    return {"status": "error", "message": "wait-for-text requires substring"}
+                text = args[1]
+                timeout = float(args[2]) if len(args) > 2 else 10.0
+                timeout = min(timeout, 60.0)
+                import time as _t
+                deadline = _t.time() + timeout
+                expr = f"document.body && document.body.innerText.includes({json.dumps(text)})"
+                while _t.time() < deadline:
+                    r = self.cdp.send("Runtime.evaluate", {"expression": expr, "returnByValue": True})
+                    if "error" in r:
+                        return {"status": "error", "message": r["error"].get("message", "cdp error")}
+                    if r.get("result", {}).get("result", {}).get("value", False):
+                        return {"status": "ok", "data": {"found": True, "waited_ms": int((timeout - (deadline - _t.time())) * 1000)}}
+                    _t.sleep(0.2)
+                return {"status": "ok", "data": {"found": False, "timed_out": True, "waited_ms": int(timeout * 1000)}}
 
             if name == "list-network-requests":
                 mx = int(args[1]) if len(args) > 1 else None
