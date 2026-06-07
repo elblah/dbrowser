@@ -66,6 +66,15 @@ DEVICE_PROFILES = {
     "tablet-landscape": (1024, 768),
 }
 
+DEVICE_ALIASES = {
+    "phone":  "phone-portrait",
+    "mobile": "phone-portrait",
+    "iphone": "phone-portrait",
+    "tablet": "tablet-portrait",
+    "ipad":   "tablet-portrait",
+    "desktop": None,  # special: don't change viewport
+}
+
 # --- minimal websocket client (RFC 6455, client side, text+binary, no deflate) ---
 class WS:
     OPC_CONT = 0x0
@@ -303,6 +312,8 @@ class CDP:
                 self.network_requests[rid] = {
                     "id": rid,
                     "uri": req.get("url", ""),
+                    "url": req.get("url", ""),
+                    "type": params.get("type", "Other"),
                     "method": req.get("method", "GET"),
                     "headers": req.get("headers", {}),
                     "response_headers": {},
@@ -464,6 +475,7 @@ def launch_chromium():
         "--no-first-run",
         "--no-default-browser-check",
         "--noerrdialogs",
+        "--lang=pt-BR",                    # avoid login walls on .com.br sites
         f"--user-data-dir={user_dir}",
         CDP_URL,
     ]
@@ -652,6 +664,10 @@ class Server:
 
             if name == "device":
                 profile = args[1] if len(args) > 1 else None
+                if profile in DEVICE_ALIASES:
+                    profile = DEVICE_ALIASES[profile]
+                if profile is None:
+                    return {"status": "ok", "data": f"no viewport change for {args[1]}"}
                 if profile not in DEVICE_PROFILES:
                     return {"status": "error", "message": f"unknown profile {profile}; options: {list(DEVICE_PROFILES)}"}
                 w, h = DEVICE_PROFILES[profile]
