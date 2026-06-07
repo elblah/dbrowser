@@ -57,7 +57,7 @@ DBROWSER_WIDTH = int(os.getenv("DBROWSER_WIDTH", "1280"))
 DBROWSER_HEIGHT = int(os.getenv("DBROWSER_HEIGHT", "800"))
 DBROWSER_TIMEOUT = float(os.getenv("DBROWSER_TIMEOUT", "10.0"))
 CONSOLE_BUFFER_SIZE = int(os.getenv("DBROWSER_CONSOLE_BUFFER", "1000"))
-NETWORK_BUFFER_SIZE = int(os.getenv("DBROWSER_NETWORK_BUFFER", "100"))
+NETWORK_BUFFER_SIZE = int(os.getenv("DBROWSER_NETWORK_BUFFER", "500"))
 
 DEVICE_PROFILES = {
     "phone-portrait":   (375, 812),
@@ -531,7 +531,12 @@ Viewport:
 
 Identity:
   set-user-agent <ua>           - override User-Agent header
-  cookies                       - no-op (CDP cookie policy is per-context, not used)
+  cookies                       - list all cookies for current page (Network.getCookies)
+
+Advanced:
+  cdp <Domain.method> [json]   - raw CDP passthrough; e.g. cdp Page.printToPDF {"landscape":false}
+                                 for setting cookies use cdp Network.setCookie {...} or
+                                 Network.setCookies {cookies:[...]}
 
 Other:
   help                          - this help
@@ -700,8 +705,27 @@ class Server:
                 return {"status": "ok", "data": f"ua set: {ua[:60]}"}
 
             if name == "cookies":
-                # CDP cookie policy is per-context, skip for now
-                return {"status": "ok", "data": "cookie policy not configurable in chromium backend"}
+                r = self.cdp.send("Network.getCookies", {})
+                if "error" in r:
+                    return {"status": "error", "message": r["error"].get("message")}
+                cookies = r.get("result", {}).get("cookies", [])
+                return {"status": "ok", "data": cookies}
+
+            if name == "cdp":
+                # generic passthrough: cdp <Domain.method> [json-args]
+                if len(args) < 2:
+                    return {"status": "error", "message": "cdp requires <Domain.method> [json-args]"}
+                method = args[1]
+                params = {}
+                if len(args) > 2 and args[2].strip():
+                    try:
+                        params = json.loads(args[2])
+                    except json.JSONDecodeError as e:
+                        return {"status": "error", "message": f"bad json args: {e}"}
+                r = self.cdp.send(method, params)
+                if "error" in r:
+                    return {"status": "error", "message": r["error"].get("message", str(r["error"]))}
+                return {"status": "ok", "data": r.get("result", {})}
 
             return {"status": "error", "message": f"unknown command: {name}"}
         except (ConnectionError, OSError) as e:
