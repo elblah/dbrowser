@@ -11,6 +11,7 @@ Environment Variables:
   DBROWSER_CDP_PORT         - CDP port (default: 9222)
   DBROWSER_CDP_URL          - initial URL (default: about:blank)
   DBROWSER_AUTO_LAUNCH      - auto-launch chromium if CDP not up (default: true)
+  DBROWSER_DEBUG            - enable debug logging (default: false)
   DBROWSER_WIDTH            - viewport width (default: 1280)
   DBROWSER_HEIGHT           - viewport height (default: 800)
   DBROWSER_TIMEOUT          - JS/cmd timeout seconds (default: 10.0)
@@ -42,6 +43,10 @@ import urllib.request
 
 # --- config ---
 UID = os.getuid()
+DEBUG = os.getenv("DBROWSER_DEBUG", "false").lower() in ("1", "true", "yes")
+HOME = os.getenv("HOME", f"/home/{os.getenv('USER', 'user')}")
+STORAGE_DIR = f"{HOME}/storage/tmp"
+os.makedirs(STORAGE_DIR, exist_ok=True)
 # Default socket matches the WebKit dbrowser server so this can be a
 # transparent drop-in replacement. Override with SOCKET_PATH env var.
 DEFAULT_SOCKET = f"/run/user/{UID}/tmp/dbrowser.sock"
@@ -419,7 +424,7 @@ atexit.register(_cleanup_socket)
 
 def launch_chromium():
     global _chromium_proc, _auto_launched
-    user_dir = f"/tmp/chromium-dbrowser-{UID}"
+    user_dir = f"{STORAGE_DIR}/chromium-dbrowser-{UID}"
     os.makedirs(user_dir, exist_ok=True)
 
     # Pre-seed Default/Preferences. Always (re)write so the file is
@@ -491,8 +496,11 @@ def launch_chromium():
         f"--user-data-dir={user_dir}",
         CDP_URL,
     ]
-    log_path = "/tmp/chromium-dbrowser.log"
-    logf = open(log_path, "ab")
+    if DEBUG:
+        log_path = f"{STORAGE_DIR}/chromium-dbrowser.log"
+        logf = open(log_path, "ab")
+    else:
+        logf = open(os.devnull, "wb")
     proc = subprocess.Popen(args, stdout=logf, stderr=logf,
                             stdin=subprocess.DEVNULL,
                             start_new_session=True)
@@ -594,6 +602,12 @@ class Server:
             return {"status": "error", "message": "invalid command"}
         args = cmd["command"]
         name = args[0]
+
+        # Check CDP health and relaunch if needed (auto_launch enabled)
+        try:
+            self._ensure_cdp()
+        except Exception as e:
+            return {"status": "error", "message": f"chromium not available: {e}"}
 
         try:
             if name == "help":
