@@ -428,7 +428,17 @@ def launch_chromium():
     os.makedirs(default_dir, exist_ok=True)
     prefs_path = os.path.join(default_dir, "Preferences")
     prefs = {
-        "profile": {"exit_type": "Normal", "exited_cleanly": True},
+        # Content settings: 1=allow, 2=block, 3=ask (default), 4=session-only
+        "profile": {
+            "exit_type": "Normal",
+            "exited_cleanly": True,
+            "default_content_setting_values": {
+                "notifications": 2,            # block notification prompts
+                "geolocation": 2,              # block location prompts
+                "media_stream_camera": 2,      # block camera prompts
+                "media_stream_mic": 2,         # block mic prompts
+            },
+        },
         "session": {"restore_on_startup": 4},
         "browser": {"has_seen_welcome_page": True},
     }
@@ -471,7 +481,9 @@ def launch_chromium():
         "--disable-gpu",
         "--no-memcheck",
         "--hide-crash-restore-bubble",     # newer than --disable-session-crashed-bubble
-        "--disable-features=InfiniteSessionRestore,SessionRestoreOnStartup",
+        "--disable-features=InfiniteSessionRestore,SessionRestoreOnStartup,NotificationTriggers",
+        "--disable-notifications",         # block the "show notifications?" popup
+        "--disable-infobars",              # suppress infobars (notification ask, translate, etc)
         "--no-first-run",
         "--no-default-browser-check",
         "--noerrdialogs",
