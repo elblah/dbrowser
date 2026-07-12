@@ -201,6 +201,8 @@ class CDP:
         self._net_counter = 0
         self._closed = False
         self._target_id = None
+        self._crashed = False
+        self._crash_reason = ""
 
     def is_up(self):
         try:
@@ -232,12 +234,15 @@ class CDP:
         h, _, p = hostport.partition(":")
         self.ws = WS.connect(h, int(p), path)
         self._closed = False
+        self._crashed = False
+        self._crash_reason = ""
         self.evt_thread = threading.Thread(target=self._reader, daemon=True)
         self.evt_thread.start()
         self.send("Page.enable")
         self.send("Runtime.enable")
         self.send("Network.enable")
         self.send("Log.enable")
+        self.send("Inspector.enable")
 
     def _reader(self):
         while not self._closed:
@@ -309,6 +314,10 @@ class CDP:
                 self.console_buffer.append(line)
                 if len(self.console_buffer) > CONSOLE_BUFFER_SIZE:
                     self.console_buffer.pop(0)
+        elif method == "Inspector.targetCrashed":
+            reason = params.get("status", "crashed")
+            self._crashed = True
+            self._crash_reason = reason
         elif method == "Network.requestWillBeSent":
             with self.network_lock:
                 self._net_counter += 1
@@ -614,6 +623,15 @@ class Server:
                 return {"status": "ok", "data": show_help()}
 
             if name == "status":
+                if self.cdp._crashed:
+                    return {"status": "ok", "data": {
+                        "url": None, "title": "Aw, Snap!",
+                        "ready": "crashed",
+                        "width": self.width, "height": self.height,
+                        "loading": False,
+                        "crashed": True,
+                        "crash_reason": self.cdp._crash_reason,
+                    }}
                 r = self.cdp.send("Runtime.evaluate", {
                     "expression": "JSON.stringify({url: location.href, title: document.title, ready: document.readyState})",
                     "returnByValue": True,
@@ -624,13 +642,17 @@ class Server:
                 data["width"] = self.width
                 data["height"] = self.height
                 data["loading"] = data.get("ready") != "complete"
+                data["crashed"] = False
                 return {"status": "ok", "data": data}
 
             if name == "load-url":
                 if len(args) < 2:
                     return {"status": "error", "message": "load-url requires url"}
+                self.cdp._crashed = False
+                self.cdp._crash_reason = ""
                 r = self.cdp.send("Page.navigate", {"url": args[1]})
                 if "error" in r:
+                    # if navigated to a crashed url, the navigate itself can fail
                     return {"status": "error", "message": r["error"].get("message")}
                 return {"status": "ok", "data": f"loading {args[1]}"}
 
@@ -670,6 +692,8 @@ class Server:
                 return {"status": "ok", "data": "forward"}
 
             if name == "reload":
+                self.cdp._crashed = False
+                self.cdp._crash_reason = ""
                 self.cdp.send("Page.reload", {"ignoreCache": False})
                 return {"status": "ok", "data": "reloading"}
 
