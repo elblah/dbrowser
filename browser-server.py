@@ -11,6 +11,7 @@ Environment Variables:
   DBROWSER_WIDTH / DBROWSER_SIZE - Viewport width or WxH size
   DBROWSER_HEIGHT         - Viewport height in pixels
   DBROWSER_TIMEOUT        - JS execution timeout in seconds (default: 10.0)
+  DBROWSER_IDLE_TIMEOUT   - Auto-exit after N seconds of inactivity (default: 0 = disabled)
   DBROWSER_CONSOLE_BUFFER - Max console log lines to retain (default: 1000)
   DBROWSER_NETWORK_BUFFER - Max network requests to track (default: 100)
   DBROWSER_COOKIE_POLICY  - Cookie policy: no_third_party, none, all
@@ -37,6 +38,7 @@ Usage:
 """
 import sys
 import os
+import time
 
 def show_help():
     print('''
@@ -134,6 +136,15 @@ fullscreen = os.getenv('DBROWSER_FULLSCREEN', 'false').lower() in ('true', '1', 
 # Server-specific config
 DBROWSER_HEADLESS = os.getenv('DBROWSER_HEADLESS', 'false').lower() in ('true', '1', 'yes')
 DBROWSER_TIMEOUT = float(os.getenv('DBROWSER_TIMEOUT', 10.0))
+
+# Idle auto-exit: exit after N seconds of no activity (IPC/UI/click). 0/empty/invalid = disabled.
+try:
+    DBROWSER_IDLE_TIMEOUT = float(os.getenv('DBROWSER_IDLE_TIMEOUT', 0) or 0)
+except (ValueError, TypeError):
+    DBROWSER_IDLE_TIMEOUT = 0
+if DBROWSER_IDLE_TIMEOUT <= 0:
+    DBROWSER_IDLE_TIMEOUT = 0
+last_activity = [time.monotonic()]
 CONSOLE_BUFFER_SIZE = int(os.getenv('DBROWSER_CONSOLE_BUFFER', 1000))
 NETWORK_BUFFER_SIZE = int(os.getenv('DBROWSER_NETWORK_BUFFER', 100))
 DBROWSER_COOKIE_POLICY = os.getenv('DBROWSER_COOKIE_POLICY', 'no_third_party')
@@ -332,7 +343,6 @@ import random  # noqa: E402
 import string  # noqa: E402
 import json  # noqa: E402
 import base64  # noqa: E402
-import time  # noqa: E402
 import io  # noqa: E402
 import select  # noqa: E402
 
@@ -573,6 +583,7 @@ def handle_client(sock, cond):
                 break
 
         if data:
+            last_activity[0] = time.monotonic()
             text = data.decode('utf-8').strip()
             if text == 'help':
                 response = handle_command({'command': ['help']})
@@ -618,6 +629,7 @@ import socket  # noqa: E402
 
 # ── Keyboard Handler ───────────────────────────────────────────────────────
 def on_key(w, e):
+    last_activity[0] = time.monotonic()
     if debug:
         print(f'key pressed: keyval={e.keyval}, state={e.state}')
 
@@ -785,6 +797,23 @@ def on_key(w, e):
         return False
     return True
 
+def on_load_changed(webview, load_event):
+    """Reset idle timer on top-level page load/navigation."""
+    last_activity[0] = time.monotonic()
+
+def on_button_press(widget, event):
+    """Reset idle timer on any mouse click in the browser view."""
+    last_activity[0] = time.monotonic()
+    return False
+
+def _check_idle():
+    """Auto-exit if no IPC/UI activity for DBROWSER_IDLE_TIMEOUT seconds."""
+    if DBROWSER_IDLE_TIMEOUT > 0 and (time.monotonic() - last_activity[0]) >= DBROWSER_IDLE_TIMEOUT:
+        print(f"idle timeout {DBROWSER_IDLE_TIMEOUT:.0f}s reached - auto-exiting")
+        Gtk.main_quit()
+        return False
+    return True
+
 # ── Downloads & Policy ─────────────────────────────────────────────────────
 def on_download(ctx, download):
     def on_decide_destination(d, suggested):
@@ -830,6 +859,8 @@ def update_title():
 
 web.connect('notify::title', lambda wv, pspec: update_title())
 web.connect('notify::estimated-load-progress', lambda wv, pspec: update_title())
+web.connect('load-changed', on_load_changed)
+web.connect('button-press-event', on_button_press)
 
 # ── Main ───────────────────────────────────────────────────────────────────
 win.connect('destroy', Gtk.main_quit)
@@ -847,6 +878,10 @@ web.load_uri(url)
 
 # Start socket server
 server_sock = setup_socket_server()
+
+# Idle auto-exit
+if DBROWSER_IDLE_TIMEOUT > 0:
+    GLib.timeout_add_seconds(10, _check_idle)
 
 try:
     Gtk.main()

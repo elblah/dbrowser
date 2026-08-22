@@ -11,6 +11,15 @@ import io
 
 # ── Config ──────────────────────────────────────────────────────────────
 DBROWSER_TIMEOUT = float(os.getenv('DBROWSER_TIMEOUT', 10.0))
+
+# Idle auto-exit: exit after N seconds of no activity (IPC/UI/click). 0/empty/invalid = disabled.
+try:
+    DBROWSER_IDLE_TIMEOUT = float(os.getenv('DBROWSER_IDLE_TIMEOUT', 0) or 0)
+except (ValueError, TypeError):
+    DBROWSER_IDLE_TIMEOUT = 0
+if DBROWSER_IDLE_TIMEOUT <= 0:
+    DBROWSER_IDLE_TIMEOUT = 0
+last_activity = [time.monotonic()]
 CONSOLE_BUFFER_SIZE = int(os.getenv('DBROWSER_CONSOLE_BUFFER', 1000))
 NETWORK_BUFFER_SIZE = int(os.getenv('DBROWSER_NETWORK_BUFFER', 100))
 DEFAULT_SOCKET_PATH = f"/run/user/{os.getuid()}/tmp/dbrowser.sock"
@@ -344,6 +353,7 @@ def _handle_client(sock, cond):
                 break
 
         if data:
+            last_activity[0] = time.monotonic()
             text = data.decode('utf-8').strip()
             if text == 'help':
                 response = handle_command({'command': ['help']})
@@ -371,6 +381,18 @@ def _cleanup():
 
 atexit.register(_cleanup)
 
+# ── Idle auto-exit ──────────────────────────────────────────────────────────
+def _reset_idle():
+    last_activity[0] = time.monotonic()
+
+def _check_idle():
+    """Auto-exit if no IPC/UI activity for DBROWSER_IDLE_TIMEOUT seconds."""
+    if DBROWSER_IDLE_TIMEOUT > 0 and (time.monotonic() - last_activity[0]) >= DBROWSER_IDLE_TIMEOUT:
+        print(f"idle timeout {DBROWSER_IDLE_TIMEOUT:.0f}s reached - auto-exiting")
+        Gtk.main_quit()
+        return False
+    return True
+
 # Setup socket
 _sock_active = False
 if os.path.exists(SOCKET_PATH):
@@ -394,6 +416,15 @@ if _sock_active:
     _server_sock.listen(5)
     _server_sock.setblocking(False)
     GLib.io_add_watch(_server_sock, GLib.IO_IN, _handle_client)
+    # Idle auto-exit
+    if DBROWSER_IDLE_TIMEOUT > 0:
+        GLib.timeout_add_seconds(10, _check_idle)
+        try:
+            win.connect('key-press-event', lambda w, e: _reset_idle())
+            web.connect('button-press-event', lambda w, e: _reset_idle())
+            web.connect('load-changed', lambda w, e: _reset_idle())
+        except Exception:
+            pass
     print(f"IPC server listening on {SOCKET_PATH}")
     print(f"Buffers: console={CONSOLE_BUFFER_SIZE}, network={NETWORK_BUFFER_SIZE}")
     print(f"Test: echo '{{\"command\": [\"help\"]}}' | nc -U {SOCKET_PATH}")

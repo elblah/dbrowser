@@ -15,6 +15,7 @@ Environment Variables:
   DBROWSER_WIDTH            - viewport width (default: 1280)
   DBROWSER_HEIGHT           - viewport height (default: 800)
   DBROWSER_TIMEOUT          - JS/cmd timeout seconds (default: 10.0)
+  DBROWSER_IDLE_TIMEOUT     - Auto-exit after N seconds of inactivity (default: 0 = disabled)
   DBROWSER_CONSOLE_BUFFER   - max console log lines (default: 1000)
   DBROWSER_NETWORK_BUFFER   - max network requests tracked (default: 100)
   SOCKET_PATH               - Unix socket (default: /run/user/{uid}/tmp/dbrowser-chromium.sock)
@@ -61,6 +62,15 @@ AUTO_LAUNCH = os.getenv("DBROWSER_AUTO_LAUNCH", "true").lower() in ("1", "true",
 DBROWSER_WIDTH = int(os.getenv("DBROWSER_WIDTH", "1280"))
 DBROWSER_HEIGHT = int(os.getenv("DBROWSER_HEIGHT", "800"))
 DBROWSER_TIMEOUT = float(os.getenv("DBROWSER_TIMEOUT", "10.0"))
+
+# Idle auto-exit: exit after N seconds of no IPC activity. 0/empty/invalid = disabled.
+try:
+    DBROWSER_IDLE_TIMEOUT = float(os.getenv("DBROWSER_IDLE_TIMEOUT", "0") or "0")
+except (ValueError, TypeError):
+    DBROWSER_IDLE_TIMEOUT = 0
+if DBROWSER_IDLE_TIMEOUT <= 0:
+    DBROWSER_IDLE_TIMEOUT = 0
+last_activity = [time.monotonic()]
 CONSOLE_BUFFER_SIZE = int(os.getenv("DBROWSER_CONSOLE_BUFFER", "1000"))
 NETWORK_BUFFER_SIZE = int(os.getenv("DBROWSER_NETWORK_BUFFER", "500"))
 
@@ -844,6 +854,7 @@ def handle_client(conn):
             pass
         if not data:
             return
+        last_activity[0] = time.monotonic()
         text = data.decode("utf-8", errors="replace").strip()
         if text == "help":
             resp = {"status": "ok", "data": show_help()}
@@ -917,6 +928,9 @@ def main():
     try:
         while True:
             r, _, _ = select.select([sock], [], [], 1.0)
+            if DBROWSER_IDLE_TIMEOUT > 0 and (time.monotonic() - last_activity[0]) >= DBROWSER_IDLE_TIMEOUT:
+                print(f"idle timeout {DBROWSER_IDLE_TIMEOUT:.0f}s reached - auto-exiting")
+                break
             if not r:
                 continue
             try:

@@ -12,6 +12,7 @@ Environment Variables:
   DBROWSER_WIDTH          - Viewport width in pixels (default: 1280)
   DBROWSER_HEIGHT         - Viewport height in pixels (default: 800)
   DBROWSER_TIMEOUT        - JS execution timeout in seconds (default: 10.0)
+  DBROWSER_IDLE_TIMEOUT   - Auto-exit after N seconds of inactivity (default: 0 = disabled)
   DBROWSER_CONSOLE_BUFFER - Max console log lines to retain (default: 1000)
   DBROWSER_NETWORK_BUFFER - Max network requests to track (default: 100)
   DBROWSER_COOKIE_POLICY  - Cookie policy: no_third_party, none, all (default: no_third_party)
@@ -35,6 +36,7 @@ import socket
 import json
 import base64
 import subprocess
+import time
 import warnings
 warnings.filterwarnings('ignore', category=DeprecationWarning, module='gi.repository')
 import gi  # noqa: E402
@@ -65,6 +67,15 @@ DBROWSER_HEIGHT = int(os.getenv('DBROWSER_HEIGHT', 800))
 
 # JS execution timeout (seconds)
 DBROWSER_TIMEOUT = float(os.getenv('DBROWSER_TIMEOUT', 10.0))
+
+# Idle auto-exit: exit after N seconds of no activity (IPC/UI). 0/empty/invalid = disabled.
+try:
+    DBROWSER_IDLE_TIMEOUT = float(os.getenv('DBROWSER_IDLE_TIMEOUT', 0) or 0)
+except (ValueError, TypeError):
+    DBROWSER_IDLE_TIMEOUT = 0
+if DBROWSER_IDLE_TIMEOUT <= 0:
+    DBROWSER_IDLE_TIMEOUT = 0
+last_activity = [time.monotonic()]
 
 # Cookie policy: no_third_party, none, all
 DBROWSER_COOKIE_POLICY = os.getenv('DBROWSER_COOKIE_POLICY', 'no_third_party')
@@ -129,11 +140,17 @@ Commands:
   unfullscreen                              - Exit fullscreen
   rotate                                    - Swap width/height (simulate device rotation)
   device [profile]                          - Select device profile (phone-portrait, phone-landscape, tablet-portrait, tablet-landscape)
+  toggle <js|images>                        - Toggle feature on/off (takes effect on reload)
+  toggles                                   - Toggle features via rofi menu
+  settings                                  - Show current toggle states
 
 Keyboard shortcuts:
   F5 / Ctrl+R                               - Reload page
   Ctrl+Shift+M                              - Rotate (swap width/height)
   Ctrl+Shift+D                              - Select device (rofi)
+  Ctrl+Shift+J                              - Toggle JavaScript
+  Ctrl+Shift+I                              - Toggle images
+  Ctrl+Shift+T                              - Toggle features (rofi)
 
 Examples:
   echo \'{"command": ["help"]}\' | nc -U /run/user/1000/tmp/dbrowser.sock
@@ -187,8 +204,51 @@ if DBROWSER_HEADLESS:
 win.add(web)
 win.show_all()
 
+# ── Runtime toggles (JS, images) ───────────────────────────────────────────
+toggles = {
+    'js': settings.get_enable_javascript(),
+    'images': settings.get_auto_load_images(),
+}
+
+TOGGLE_HELP = {
+    'js': 'JavaScript',
+    'images': 'Images',
+}
+
+def apply_toggle(name):
+    """Flip a runtime toggle, return new state."""
+    if name not in toggles:
+        return None
+    value = not toggles[name]
+    if name == 'js':
+        settings.set_enable_javascript(value)
+    elif name == 'images':
+        settings.set_auto_load_images(value)
+    toggles[name] = value
+    return value
+
+def show_toggles():
+    """Rofi menu to toggle features."""
+    options = '\n'.join(
+        f"{TOGGLE_HELP[n]}: {'ON' if toggles[n] else 'OFF'}" for n in toggles
+    )
+    try:
+        result = subprocess.run(
+            ['rofi', '-dmenu', '-p', 'Toggle', '-i'],
+            input=options, capture_output=True, text=True, timeout=30
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return {"status": "error", "message": "rofi not found"}
+    selected = result.stdout.strip()
+    for n, label in TOGGLE_HELP.items():
+        if selected.startswith(label):
+            return {"status": "ok", "data":
+                    f"{TOGGLE_HELP[n]}: {'ON' if apply_toggle(n) else 'OFF'} (takes effect on reload)"}
+    return {"status": "error", "message": "no selection"}
+
 # Key press handler for reload (F5 and Ctrl+R)
 def on_key_press(widget, event):
+    last_activity[0] = time.monotonic()
     # F5 to reload
     if event.keyval == Gdk.KEY_F5:
         web.reload()
@@ -209,6 +269,29 @@ def on_key_press(widget, event):
         event.keyval == Gdk.KEY_D):
         select_device()
         return True
+    # Ctrl+Shift+J to toggle JavaScript
+    if (event.state & Gdk.ModifierType.CONTROL_MASK and
+        event.state & Gdk.ModifierType.SHIFT_MASK and
+        event.keyval == Gdk.KEY_J):
+        apply_toggle('js')
+        return True
+    # Ctrl+Shift+I to toggle images
+    if (event.state & Gdk.ModifierType.CONTROL_MASK and
+        event.state & Gdk.ModifierType.SHIFT_MASK and
+        event.keyval == Gdk.KEY_I):
+        apply_toggle('images')
+        return True
+    # Ctrl+Shift+T to open toggles menu
+    if (event.state & Gdk.ModifierType.CONTROL_MASK and
+        event.state & Gdk.ModifierType.SHIFT_MASK and
+        event.keyval == Gdk.KEY_T):
+        show_toggles()
+        return True
+    return False
+
+def on_button_press(widget, event):
+    """Reset idle timer on any mouse click in the browser view."""
+    last_activity[0] = time.monotonic()
     return False
 
 def rotate_window():
@@ -316,6 +399,24 @@ web.connect("resource-load-started", on_resource_load_started)
 initial_url = sys.argv[1] if len(sys.argv) > 1 else 'about:blank'
 web.load_uri(initial_url)
 
+def log_op(msg):
+    """Print an operation log line to stdout (flushed so it shows live)."""
+    import datetime
+    ts = datetime.datetime.now().strftime('%H:%M:%S')
+    print(f"[dbrowser] {ts} {msg}", flush=True)
+
+def on_load_changed(webview, load_event):
+    """Log top-level page loads (the URL the AI is navigating to)."""
+    last_activity[0] = time.monotonic()
+    if load_event in (WebKit2.LoadEvent.STARTED, WebKit2.LoadEvent.FINISHED):
+        uri = webview.get_uri()
+        if uri and uri != 'about:blank':
+            label = "STARTED" if load_event == WebKit2.LoadEvent.STARTED else "FINISHED"
+            log_op(f"page-load {label} {uri}")
+
+web.connect("load-changed", on_load_changed)
+web.connect("button-press-event", on_button_press)
+
 def handle_command(cmd):
     """Process a command and return response dict."""
     if not cmd or 'command' not in cmd:
@@ -326,7 +427,15 @@ def handle_command(cmd):
         return {"status": "error", "message": "Empty command"}
     
     name = args[0]
-    
+
+    # ── Operation logging (stdout) ──────────────────────────────────────────
+    if name == 'eval-js':
+        js_len = len(args[1]) if len(args) > 1 else 0
+        log_op(f"eval-js  [JS command issued: {js_len} chars]")
+    else:
+        extra = " ".join(str(a) for a in args[1:]) if len(args) > 1 else ""
+        log_op(f"{name} {extra}".strip())
+
     if name == 'help':
         return {"status": "ok", "data": show_help()}
     
@@ -489,6 +598,19 @@ def handle_command(cmd):
     if name == 'device':
         profile = args[1] if len(args) > 1 else None
         return select_device(profile)
+
+    if name == 'toggle':
+        if len(args) < 2 or args[1] not in toggles:
+            return {"status": "error", "message": "toggle requires one of: js, images"}
+        return {"status": "ok", "data":
+                f"{TOGGLE_HELP[args[1]]}: {'ON' if apply_toggle(args[1]) else 'OFF'} (takes effect on reload)"}
+
+    if name == 'toggles':
+        return show_toggles()
+
+    if name == 'settings':
+        return {"status": "ok", "data":
+                {TOGGLE_HELP[n]: 'ON' if toggles[n] else 'OFF' for n in toggles}}
     
     return {"status": "error", "message": f"Unknown command: {name}"}
 
@@ -516,6 +638,7 @@ def handle_client(sock, cond):
                 break
 
         if data:
+            last_activity[0] = time.monotonic()
             text = data.decode('utf-8').strip()
             # Accept plain "help" command
             if text == 'help':
@@ -533,6 +656,14 @@ def handle_client(sock, cond):
         print(f"Error: {e}")
     finally:
         conn.close()
+    return True
+
+def _check_idle():
+    """Auto-exit if no IPC/UI activity for DBROWSER_IDLE_TIMEOUT seconds."""
+    if DBROWSER_IDLE_TIMEOUT > 0 and (time.monotonic() - last_activity[0]) >= DBROWSER_IDLE_TIMEOUT:
+        log_op(f"idle timeout {DBROWSER_IDLE_TIMEOUT:.0f}s reached - auto-exiting")
+        Gtk.main_quit()
+        return False
     return True
 
 def main():
@@ -562,6 +693,10 @@ def main():
     
     # Add socket to GLib main loop
     GLib.io_add_watch(sock, GLib.IO_IN, handle_client)
+
+    # Idle auto-exit
+    if DBROWSER_IDLE_TIMEOUT > 0:
+        GLib.timeout_add_seconds(10, _check_idle)
     
     print(f"Browser server listening on {SOCKET_PATH}")
     print(f"Buffers: console={CONSOLE_BUFFER_SIZE}, network={NETWORK_BUFFER_SIZE}")
