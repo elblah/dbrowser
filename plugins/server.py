@@ -130,9 +130,114 @@ def _on_plugin_key(widget, event):
         event.keyval == Gdk.KEY_D):
         select_device()
         return True
+    if (event.state & Gdk.ModifierType.CONTROL_MASK and
+        event.state & Gdk.ModifierType.SHIFT_MASK and
+        event.keyval == Gdk.KEY_J):
+        apply_toggle('js')
+        return True
+    if (event.state & Gdk.ModifierType.CONTROL_MASK and
+        event.state & Gdk.ModifierType.SHIFT_MASK and
+        event.keyval == Gdk.KEY_I):
+        apply_toggle('images')
+        return True
+    if (event.state & Gdk.ModifierType.CONTROL_MASK and
+        event.state & Gdk.ModifierType.SHIFT_MASK and
+        event.keyval == Gdk.KEY_T):
+        show_toggles()
+        return True
     return False
 
 win.connect('key-press-event', _on_plugin_key)
+
+# ── Runtime toggles (js, images, css, fonts) ─────────────────────────────
+toggles = {
+    'js': settings.get_enable_javascript(),
+    'images': settings.get_auto_load_images(),
+    'css': bool(os.getenv('DBROWSER_NO_CSS')),
+    'fonts': bool(os.getenv('DBROWSER_NO_FONTS')),
+}
+
+TOGGLE_HELP = {
+    'js': 'JavaScript',
+    'images': 'Images',
+    'css': 'CSS',
+    'fonts': 'Fonts',
+}
+
+_FILTER_RULES = {
+    'css': [{"action": {"type": "block"}, "trigger": {"url-filter": ".*", "resource-type": ["style-sheet"]}}],
+    'fonts': [{"action": {"type": "block"}, "trigger": {"url-filter": ".*", "resource-type": ["font"]}}],
+}
+
+_runtime_filters = {}
+
+def _load_filter(name):
+    """Build a UserContentFilter asynchronously, apply when ready."""
+    cache_dir = os.path.join(os.path.expanduser('~/.cache/dbrowser'), f'dbrowser-{name}')
+    if os.path.exists(cache_dir):
+        import shutil
+        shutil.rmtree(cache_dir)
+    os.makedirs(cache_dir, exist_ok=True)
+
+    store = WebKit2.UserContentFilterStore.new(cache_dir)
+    data = GLib.Bytes.new(json.dumps(_FILTER_RULES[name]).encode())
+
+    def on_saved(store, result, user_data):
+        try:
+            filt = store.save_finish(result)
+            _runtime_filters[name] = filt
+            web.get_user_content_manager().add_filter(filt)
+            print(f'toggles: {name} filter applied')
+        except GLib.Error as e:
+            print(f'toggles: {name} filter error: {e}')
+
+    store.save(f'dbrowser-{name}', data, None, on_saved, None)
+
+def _apply_filter(name, value):
+    manager = web.get_user_content_manager()
+    if value:
+        if name in _runtime_filters:
+            manager.add_filter(_runtime_filters[name])
+        else:
+            _load_filter(name)
+    else:
+        filt = _runtime_filters.pop(name, None)
+        if filt:
+            manager.remove_filter(filt)
+
+def apply_toggle(name):
+    """Flip a runtime toggle, return new state."""
+    if name not in toggles:
+        return None
+    value = not toggles[name]
+    if name == 'js':
+        settings.set_enable_javascript(value)
+    elif name == 'images':
+        settings.set_auto_load_images(value)
+    elif name in _FILTER_RULES:
+        _apply_filter(name, value)
+    toggles[name] = value
+    return value
+
+def show_toggles():
+    """Rofi menu to toggle features."""
+    options = '\n'.join(
+        f"{TOGGLE_HELP[n]}: {'ON' if toggles[n] else 'OFF'}" for n in toggles
+    )
+    try:
+        result = subprocess.run(
+            ['rofi', '-dmenu', '-p', 'Toggle', '-i'],
+            input=options, capture_output=True, text=True, timeout=30
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return {"status": "error", "message": "rofi not found"}
+    selected = result.stdout.strip()
+    for n, label in TOGGLE_HELP.items():
+        if selected.startswith(label):
+            apply_toggle(n)
+            return {"status": "ok", "data":
+                    f"{TOGGLE_HELP[n]}: {'ON' if toggles[n] else 'OFF'} (js/images take effect on reload)"}
+    return {"status": "error", "message": "no selection"}
 
 # ── IPC Commands ────────────────────────────────────────────────────────
 def handle_command(cmd):
@@ -162,6 +267,9 @@ IPC Commands:
   device [profile]                          - Device profile
   set-user-agent <ua>                       - Set user agent string
   get-user-agent                            - Get current user agent
+  toggle <js|images|css|fonts>              - Flip a runtime toggle
+  toggles                                   - Show toggle states
+  settings                                  - Show runtime settings
 '''}
 
     if name == 'status':
@@ -331,6 +439,25 @@ IPC Commands:
         while not done[0] and (time.time() - start) < DBROWSER_TIMEOUT:
             Gtk.main_iteration_do(False)
         return {"status": "ok", "data": result[0] or "unknown"}
+
+    if name == 'toggle':
+        if len(args) < 2 or args[1] not in toggles:
+            return {"status": "error", "message": f"toggle requires one of: {', '.join(toggles)}"}
+        new_state = apply_toggle(args[1])
+        return {"status": "ok", "data":
+                f"{TOGGLE_HELP[args[1]]}: {'ON' if new_state else 'OFF'} (js/images take effect on reload)"}
+
+    if name == 'toggles':
+        return {"status": "ok", "data": {n: toggles[n] for n in toggles}}
+
+    if name == 'settings':
+        return {"status": "ok", "data": {
+            "javascript": toggles['js'],
+            "images": toggles['images'],
+            "css": toggles['css'],
+            "fonts": toggles['fonts'],
+            "user_agent": web.get_user_agent() or "",
+        }}
 
     return {"status": "error", "message": f"Unknown command: {name}"}
 
