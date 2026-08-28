@@ -524,8 +524,8 @@ def launch_chromium():
                             stdin=subprocess.DEVNULL,
                             start_new_session=True)
     _chromium_proc = proc
-    # wait for CDP up
-    for _ in range(40):
+    # wait for CDP up (RPi3 cold start can take 40s+; default 60s)
+    for _ in range(int(os.getenv("DBROWSER_CDP_WAIT", "60")) * 2):
         time.sleep(0.5)
         try:
             with urllib.request.urlopen(f"http://{CDP_HOST}:{CDP_PORT}/json/version", timeout=1) as r:
