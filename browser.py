@@ -200,6 +200,12 @@ clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
 find = web.get_find_controller()
 find_text = ['']
 
+def _ctrl_shift(state):
+    """True only when BOTH Ctrl and Shift are held (bitmask-safe check)."""
+    wanted = Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.SHIFT_MASK
+    return (state & wanted) == wanted
+
+
 def clear_browsing_data():
     """Clear all browsing data: cache, cookies, local storage, etc."""
     data_manager = ctx.get_website_data_manager()
@@ -245,7 +251,7 @@ def on_key(w, e):
     elif e.keyval == Gdk.KEY_q and e.state & Gdk.ModifierType.CONTROL_MASK:
         print('Quitting...')
         Gtk.main_quit()
-    elif e.keyval == Gdk.KEY_M and e.state & (Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.SHIFT_MASK):
+    elif e.keyval == Gdk.KEY_M and _ctrl_shift(e.state):
         alloc = win.get_allocation()
         win.resize(alloc.height, alloc.width)
         print(f'Rotated to {alloc.height}x{alloc.width}')
@@ -258,7 +264,7 @@ def on_key(w, e):
     elif e.keyval == Gdk.KEY_p and e.state & Gdk.ModifierType.CONTROL_MASK and not (e.state & Gdk.ModifierType.SHIFT_MASK):
         print('Printing...')
         web.run_javascript('window.print()', None, None)
-    elif e.keyval == Gdk.KEY_P and e.state & (Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.SHIFT_MASK):
+    elif e.keyval == Gdk.KEY_P and _ctrl_shift(e.state):
         def on_title(wv, result, data):
             title = wv.run_javascript_finish(result).get_js_value().to_string() or 'page'
             dest = get_save_path(title, 'pdf')
@@ -288,7 +294,7 @@ def on_key(w, e):
             web.save(WebKit2.SaveMode.MHTML, None, on_save_finished, None)
         print('Saving HTML...')
         web.run_javascript('document.title', None, on_title, None)
-    elif e.keyval == Gdk.KEY_S and e.state & (Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.SHIFT_MASK):
+    elif e.keyval == Gdk.KEY_S and _ctrl_shift(e.state):
         def on_title(wv, result, data):
             title = wv.run_javascript_finish(result).get_js_value().to_string() or 'page'
             dest = get_save_path(title, 'png')
@@ -299,7 +305,7 @@ def on_key(w, e):
             web.get_snapshot(WebKit2.SnapshotRegion.FULL_DOCUMENT, WebKit2.SnapshotOptions.NONE, None, on_snapshot_finished, None)
         print('Saving screenshot...')
         web.run_javascript('document.title', None, on_title, None)
-    elif e.keyval == Gdk.KEY_C and e.state & (Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.SHIFT_MASK):
+    elif e.keyval == Gdk.KEY_C and _ctrl_shift(e.state):
         print('Copying page text to tmux and clipboard...')
         def copy_text(wv, result, data):
             text = wv.run_javascript_finish(result).get_js_value().to_string()
@@ -314,7 +320,7 @@ def on_key(w, e):
             web.load_uri(url_text)
         else:
             print(f'Tmux buffer is not a valid URL: {url_text[:50] if url_text else "(empty)"}...')
-    elif e.keyval == Gdk.KEY_G and e.state & (Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.SHIFT_MASK):
+    elif e.keyval == Gdk.KEY_G and _ctrl_shift(e.state):
         url_text = clipboard.wait_for_text()
         if is_valid_url(url_text):
             print(f'Loading from clipboard: {url_text}')
@@ -367,7 +373,7 @@ def on_key(w, e):
     elif e.keyval == Gdk.KEY_period and e.state & Gdk.ModifierType.MOD1_MASK:
         print('Going forward...')
         web.go_forward()
-    elif e.keyval == Gdk.KEY_U and e.state & (Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.SHIFT_MASK):
+    elif e.keyval == Gdk.KEY_U and _ctrl_shift(e.state):
         url_text = web.get_uri()
         subprocess.run(['tmux', 'set-buffer', url_text], check=False)
         clipboard.set_text(url_text, -1)
@@ -394,10 +400,10 @@ def on_key(w, e):
     elif e.keyval == Gdk.KEY_N and e.state & Gdk.ModifierType.CONTROL_MASK:
         find.search_previous()
         print('Find previous')
-    elif e.keyval == Gdk.KEY_Delete and e.state & (Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.SHIFT_MASK):
+    elif e.keyval == Gdk.KEY_Delete and _ctrl_shift(e.state):
         print('Clearing all browsing data...')
         clear_browsing_data()
-    elif e.keyval == Gdk.KEY_A and e.state & (Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.SHIFT_MASK):
+    elif e.keyval == Gdk.KEY_A and _ctrl_shift(e.state):
         # User agent picker
         ua_profiles = [
             'Desktop (default)	Mozilla/5.0',

@@ -503,8 +503,10 @@ _server_sock = None
 def _cleanup():
     if _server_sock:
         _server_sock.close()
-    if os.path.exists(SOCKET_PATH):
-        os.unlink(SOCKET_PATH)
+        # Only remove the file if we actually bound it. Otherwise we would
+        # delete the socket of a live server we backed off from.
+        if os.path.exists(SOCKET_PATH):
+            os.unlink(SOCKET_PATH)
 
 atexit.register(_cleanup)
 
@@ -521,37 +523,74 @@ def _check_idle():
     return True
 
 # Setup socket
+def _socket_alive(path):
+    """True only if some server is really accepting on this unix socket."""
+    probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    probe.settimeout(1.0)
+    try:
+        probe.connect(path)
+        return True
+    except OSError:
+        return False
+    finally:
+        probe.close()
+
+def _bind_socket(path, attempts=20):
+    """Bind the socket path, clearing stale leftovers. Returns socket or None.
+
+    The path can be occupied by a dead process's socket file (killed obscura
+    or a previous run) or by a racing startup. Any file there that does not
+    answer a connect is junk — remove it and take the path.
+    """
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    for _ in range(attempts):
+        if os.path.exists(path) and _socket_alive(path):
+            return None  # a live server claimed it meanwhile — not ours to take
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            sock.bind(path)
+            return sock
+        except OSError as e:
+            sock.close()
+            print(f"bind {path} failed ({e}) — clearing and retrying", file=sys.stderr)
+            try:
+                if os.path.isdir(path):
+                    import shutil
+                    shutil.rmtree(path)
+                else:
+                    os.unlink(path)
+            except OSError:
+                pass
+            time.sleep(0.05)
+    return None
+
 _sock_active = False
 if os.path.exists(SOCKET_PATH):
-    test_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    try:
-        test_sock.connect(SOCKET_PATH)
-        test_sock.close()
+    if _socket_alive(SOCKET_PATH):
         print(f"Warning: Socket {SOCKET_PATH} is already in use — IPC disabled", file=sys.stderr)
-    except (ConnectionRefusedError, FileNotFoundError):
-        os.unlink(SOCKET_PATH)
+    else:
+        print(f"Stale socket {SOCKET_PATH} (dead process) — replacing it")
         _sock_active = True
-    finally:
-        test_sock.close()
 else:
     _sock_active = True
 
 if _sock_active:
-    os.makedirs(os.path.dirname(SOCKET_PATH), exist_ok=True)
-    _server_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    _server_sock.bind(SOCKET_PATH)
-    _server_sock.listen(5)
-    _server_sock.setblocking(False)
-    GLib.io_add_watch(_server_sock, GLib.IO_IN, _handle_client)
-    # Idle auto-exit
-    if DBROWSER_IDLE_TIMEOUT > 0:
-        GLib.timeout_add_seconds(10, _check_idle)
-        try:
-            win.connect('key-press-event', lambda w, e: _reset_idle())
-            web.connect('button-press-event', lambda w, e: _reset_idle())
-            web.connect('load-changed', lambda w, e: _reset_idle())
-        except Exception:
-            pass
-    print(f"IPC server listening on {SOCKET_PATH}")
-    print(f"Buffers: console={CONSOLE_BUFFER_SIZE}, network={NETWORK_BUFFER_SIZE}")
-    print(f"Test: echo '{{\"command\": [\"help\"]}}' | nc -U {SOCKET_PATH}")
+    _server_sock = _bind_socket(SOCKET_PATH)
+    if _server_sock is None:
+        print(f"Error: cannot bind {SOCKET_PATH} — IPC disabled", file=sys.stderr)
+    else:
+        _server_sock.listen(5)
+        _server_sock.setblocking(False)
+        GLib.io_add_watch(_server_sock, GLib.IO_IN, _handle_client)
+        # Idle auto-exit
+        if DBROWSER_IDLE_TIMEOUT > 0:
+            GLib.timeout_add_seconds(10, _check_idle)
+            try:
+                win.connect('key-press-event', lambda w, e: _reset_idle())
+                web.connect('button-press-event', lambda w, e: _reset_idle())
+                web.connect('load-changed', lambda w, e: _reset_idle())
+            except Exception:
+                pass
+        print(f"IPC server listening on {SOCKET_PATH}")
+        print(f"Buffers: console={CONSOLE_BUFFER_SIZE}, network={NETWORK_BUFFER_SIZE}")
+        print(f"Test: echo '{{\"command\": [\"help\"]}}' | nc -U {SOCKET_PATH}")
