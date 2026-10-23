@@ -535,6 +535,56 @@ def handle_command(cmd):
         if result[0]:
             return {"status": "ok", "data": result[0]}
         return {"status": "error", "message": "Failed to capture screenshot"}
+
+    if name == 'screenshot-full':
+        # FULL_DOCUMENT alone often returns only the viewport (WebKitGTK bug),
+        # so grow the window to content height, snapshot, then restore.
+        max_h = int(args[1]) if len(args) > 1 else 10000
+        size = [None]
+        got = [False]
+        def on_size(webview, res, data):
+            try:
+                w, h = webview.run_javascript_finish(res).get_js_value().to_string().split('x')
+                size[0] = (int(w), int(h))
+            except Exception:
+                pass
+            finally:
+                got[0] = True
+        web.run_javascript('document.documentElement.scrollWidth+"x"+document.documentElement.scrollHeight', None, on_size, None)
+        start = time.time()
+        while not got[0] and (time.time() - start) < DBROWSER_TIMEOUT:
+            Gtk.main_iteration_do(False)
+        cw, ch = size[0] or (800, 600)
+        alloc = win.get_allocation()
+        ow, oh = alloc.width, alloc.height
+        fh = min(max(ch, oh), max_h)
+        win.resize(max(cw, ow), fh)
+        # Let WebKit reflow at the new size
+        reflow_until = time.time() + 1.0
+        while time.time() < reflow_until:
+            Gtk.main_iteration_do(False)
+        result = [None]
+        done = [False]
+        def on_snapshot(webview, res, data):
+            try:
+                surface = webview.get_snapshot_finish(res)
+                import io
+                buffer = io.BytesIO()
+                surface.write_to_png(buffer)
+                result[0] = base64.b64encode(buffer.getvalue()).decode('utf-8')
+            except Exception:
+                pass
+            finally:
+                done[0] = True
+        web.get_snapshot(WebKit2.SnapshotRegion.FULL_DOCUMENT,
+                        WebKit2.SnapshotOptions.NONE, None, on_snapshot, None)
+        start = time.time()
+        while not done[0] and (time.time() - start) < DBROWSER_TIMEOUT:
+            Gtk.main_iteration_do(False)
+        win.resize(ow, oh)
+        if result[0]:
+            return {"status": "ok", "data": result[0]}
+        return {"status": "error", "message": "Failed to capture full-page screenshot"}
     
     if name == 'get-console-output':
         lines = int(args[1]) if len(args) > 1 else None

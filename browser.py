@@ -295,16 +295,35 @@ def on_key(w, e):
         print('Saving HTML...')
         web.run_javascript('document.title', None, on_title, None)
     elif e.keyval == Gdk.KEY_S and _ctrl_shift(e.state):
-        def on_title(wv, result, data):
-            title = wv.run_javascript_finish(result).get_js_value().to_string() or 'page'
-            dest = get_save_path(title, 'png')
-            def on_snapshot_finished(wv, result, data):
-                surface = wv.get_snapshot_finish(result)
-                surface.write_to_png(dest)
-                print(f'Saved screenshot to {dest}')
-            web.get_snapshot(WebKit2.SnapshotRegion.FULL_DOCUMENT, WebKit2.SnapshotOptions.NONE, None, on_snapshot_finished, None)
+        # FULL_DOCUMENT alone often returns only the viewport (WebKitGTK bug),
+        # so grow the window to content height, snapshot, then restore.
+        def on_size(wv, result, data):
+            try:
+                w, h = wv.run_javascript_finish(result).get_js_value().to_string().split('x')
+                cw, ch = int(w), int(h)
+            except Exception:
+                cw, ch = 800, 600
+            alloc = win.get_allocation()
+            ow, oh = alloc.width, alloc.height
+            fh = min(max(ch, oh), 10000)
+            win.resize(max(cw, ow), fh)
+            def do_shot():
+                def on_title(wv2, result2, data2):
+                    title = wv2.run_javascript_finish(result2).get_js_value().to_string() or 'page'
+                    dest = get_save_path(title, 'png')
+                    def on_snapshot_finished(wv3, result3, data3):
+                        try:
+                            surface = wv3.get_snapshot_finish(result3)
+                            surface.write_to_png(dest)
+                            print(f'Saved screenshot to {dest}')
+                        finally:
+                            win.resize(ow, oh)
+                    web.get_snapshot(WebKit2.SnapshotRegion.FULL_DOCUMENT, WebKit2.SnapshotOptions.NONE, None, on_snapshot_finished, None)
+                web.run_javascript('document.title', None, on_title, None)
+                return False
+            GLib.timeout_add(600, do_shot)
         print('Saving screenshot...')
-        web.run_javascript('document.title', None, on_title, None)
+        web.run_javascript('document.documentElement.scrollWidth+"x"+document.documentElement.scrollHeight', None, on_size, None)
     elif e.keyval == Gdk.KEY_C and _ctrl_shift(e.state):
         print('Copying page text to tmux and clipboard...')
         def copy_text(wv, result, data):
