@@ -149,6 +149,20 @@ def _on_plugin_key(widget, event):
 
 win.connect('key-press-event', _on_plugin_key)
 
+# Append plugin keybindings to browser.py's F1 help (plugin runs in browser.py
+# global scope, so show_help resolves here at call time).
+_plugin_orig_show_help = globals().get('show_help')
+if _plugin_orig_show_help:
+    def show_help():
+        _plugin_orig_show_help()
+        print('''
+Plugin keybindings:
+  Ctrl+Shift+D    - Select device profile (rofi)
+  Ctrl+Shift+J    - Toggle JavaScript
+  Ctrl+Shift+I    - Toggle images
+  Ctrl+Shift+T    - Toggle features (rofi)
+''')
+
 # ── Runtime toggles (js, images, css, fonts) ─────────────────────────────
 toggles = {
     'js': settings.get_enable_javascript(),
